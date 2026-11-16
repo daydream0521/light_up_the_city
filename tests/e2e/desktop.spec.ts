@@ -1,16 +1,21 @@
 import { expect, test, type Page } from '@playwright/test';
+import { LEVELS, type LevelConfig } from '../../src/game/levels';
 
-async function clickMirrors(page: Page, indices: number[]): Promise<void> {
-  for (const index of indices) await page.locator(`[data-mirror="${index}"]`).click();
+async function solveLevel(page: Page, level: LevelConfig): Promise<void> {
+  const initial = level.mirrors.map((mirror) => mirror.initial);
+  for (let index = 0; index < level.solution.length; index += 1) {
+    if (level.solution[index] !== initial[index]) await page.locator(`[data-mirror="${index}"]`).click();
+  }
+  await expect(page.locator('#level-toast')).toBeVisible();
 }
 
-async function nextLevel(page: Page, expectedName?: string): Promise<void> {
+async function advance(page: Page, expectedName?: string): Promise<void> {
   const next = page.locator('[data-action="next"]');
   if (await next.isVisible()) await next.click({ force: true }).catch(() => undefined);
   if (expectedName) await expect(page.locator('#level-name')).toHaveText(expectedName);
 }
 
-test('complete four-level game, reset, persistence, sound and replay', async ({ page }) => {
+test('complete eight-level game with split, energy, scoring, persistence and replay', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
@@ -31,42 +36,58 @@ test('complete four-level game, reset, persistence, sound and replay', async ({ 
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
   await page.screenshot({ path: 'test-results/02-level-1.png' });
 
-  await clickMirrors(page, [0]);
+  await page.locator('[data-mirror="0"]').click();
   await expect(page.locator('[data-mirror="0"]')).toHaveAttribute('aria-label', /当前方向 \//);
   await page.getByRole('button', { name: '重置当前关卡' }).click();
   await expect(page.locator('[data-mirror="0"]')).toHaveAttribute('aria-label', /当前方向 \\/);
-  await clickMirrors(page, [0]);
-  await expect(page.locator('#level-toast')).toBeVisible();
-  await page.screenshot({ path: 'test-results/03-level-1-lit.png' });
-  await nextLevel(page, '街角');
+  await expect(page.locator('#move-count')).toHaveText('0');
 
-  await expect(page.locator('#level-name')).toHaveText('街角');
-  await clickMirrors(page, [0, 1]);
-  await expect(page.locator('#level-toast')).toBeVisible();
-  await nextLevel(page, '雨巷');
+  await solveLevel(page, LEVELS[0]);
+  await expect(page.locator('#toast-stars .star-on')).toHaveCount(3);
+  await expect(page.locator('#toast-score')).toContainText('操作 1 次');
+  await expect(page.locator('[data-target="T1"]')).toHaveClass(/is-powered/);
+  await advance(page, '街角');
 
-  await expect(page.locator('#level-name')).toHaveText('雨巷');
+  await solveLevel(page, LEVELS[1]);
+  await advance(page, '一分为二');
+
   await page.reload();
   await expect(page.getByRole('button', { name: '继续点亮' })).toBeVisible();
   await page.getByRole('button', { name: '继续点亮' }).click();
-  await expect(page.locator('#level-name')).toHaveText('雨巷');
-  await clickMirrors(page, [0, 2]);
-  await expect(page.locator('#level-toast')).toBeVisible();
-  await nextLevel(page, '万家灯火');
-
-  await expect(page.locator('#level-name')).toHaveText('万家灯火');
+  await expect(page.locator('#level-name')).toHaveText('一分为二');
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
-  await page.screenshot({ path: 'test-results/04-level-4.png' });
-  await clickMirrors(page, [0, 1, 2, 3]);
-  await expect(page.locator('#level-toast')).toBeVisible();
-  await nextLevel(page);
+  await page.screenshot({ path: 'test-results/03-level-3-split.png' });
+  await solveLevel(page, LEVELS[2]);
+  await expect(page.locator('[data-target="T1"]')).toHaveClass(/is-powered/);
+  await expect(page.locator('[data-target="T2"]')).toHaveClass(/is-powered/);
+  await advance(page, '双街灯火');
+
+  await solveLevel(page, LEVELS[3]);
+  await advance(page, '精打细算');
+
+  await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
+  await page.screenshot({ path: 'test-results/04-level-5-energy.png' });
+  await solveLevel(page, LEVELS[4]);
+  await advance(page, '光的预算');
+
+  await solveLevel(page, LEVELS[5]);
+  await advance(page, '雨夜枢纽');
+
+  await solveLevel(page, LEVELS[6]);
+  await advance(page, '万家灯火');
+
+  await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
+  await page.screenshot({ path: 'test-results/05-level-8.png' });
+  await solveLevel(page, LEVELS[7]);
+  await expect(page.locator('[data-target="T3"]')).toHaveClass(/is-powered/);
+  await advance(page);
   await expect(page.locator('#finale')).toBeVisible();
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
-  await page.screenshot({ path: 'test-results/05-finale.png' });
+  await page.screenshot({ path: 'test-results/06-finale.png' });
 
   await page.getByRole('button', { name: '再玩一次' }).click();
   await expect(page.locator('#level-name')).toHaveText('初光');
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('light-up-the-city-v1')!));
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('light-up-the-city-v2')!));
   expect(saved.completed).toEqual([]);
   expect(saved.currentLevel).toBe(0);
   expect(errors).toEqual([]);

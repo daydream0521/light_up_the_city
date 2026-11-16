@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { LEVELS, OPTICS_HEIGHT, type LevelConfig, type MirrorOrientation } from '../game/levels';
+import { DISTRICT_CENTERS, LEVELS, OPTICS_HEIGHT, type LevelConfig, type MirrorOrientation, type TargetConfig } from '../game/levels';
 import type { TraceResult } from '../game/optics';
 import { createCity, gridToWorld, type CityVisual } from './cityGeometry';
 
@@ -15,10 +15,22 @@ interface MirrorVisual {
   targetRotation: number;
 }
 
+interface TargetVisual {
+  material: THREE.MeshStandardMaterial;
+  ringMaterial: THREE.MeshStandardMaterial;
+  light: THREE.PointLight;
+}
+
 interface BeamSegment {
   start: THREE.Vector3;
   end: THREE.Vector3;
   length: number;
+}
+
+interface BeamRun {
+  segments: BeamSegment[];
+  totalLength: number;
+  branch: number;
 }
 
 interface CameraTween {
@@ -34,6 +46,8 @@ interface CameraTween {
 
 const CYAN = '#69e6f2';
 const GOLD = '#ffcf82';
+const MINT = '#8affc1';
+const BRANCH_COLORS = [CYAN, MINT, '#b39dff', '#ffd18a'];
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 export class CityScene {
@@ -48,9 +62,10 @@ export class CityScene {
   private readonly pointer = new THREE.Vector2();
   private readonly hitMeshes: THREE.Mesh[] = [];
   private readonly mirrors = new Map<number, MirrorVisual>();
+  private readonly targets = new Map<string, TargetVisual>();
   private readonly beamGroup = new THREE.Group();
   private readonly levelGroup = new THREE.Group();
-  private readonly beamSegments: BeamSegment[] = [];
+  private readonly beamRuns: BeamRun[] = [];
   private readonly pulses: THREE.Mesh[] = [];
   private readonly lightLevels = [0, 0, 0, 0];
   private readonly lightTargets = [0, 0, 0, 0];
@@ -61,13 +76,16 @@ export class CityScene {
   private readonly rainPositions: Float32Array;
   private readonly rainCount: number;
   private readonly glowTexture = createGlowTexture();
-  private readonly beamCoreMaterial = new THREE.MeshBasicMaterial({ color: '#d8feff', toneMapped: false });
-  private readonly beamGlowMaterial = new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-  private readonly reflectionMaterial = new THREE.MeshBasicMaterial({ color: '#36d9ec', transparent: true, opacity: 0.075, blending: THREE.AdditiveBlending, depthWrite: false });
+  private readonly beamMaterials = BRANCH_COLORS.map((color) => {
+    const core = new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.55);
+    return {
+      core: new THREE.MeshBasicMaterial({ color: core, toneMapped: false }),
+      glow: new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+      reflection: new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.075, blending: THREE.AdditiveBlending, depthWrite: false }),
+      endpoint: color,
+    };
+  });
   private level: LevelConfig = LEVELS[0];
-  private targetMaterial?: THREE.MeshStandardMaterial;
-  private targetLight?: THREE.PointLight;
-  private targetRing?: THREE.Mesh;
   private burst?: THREE.Points;
   private burstVelocities: THREE.Vector3[] = [];
   private burstLife = 0;
@@ -181,63 +199,77 @@ export class CityScene {
   }
 
   setBeam(trace: TraceResult): void {
-    this.beamGroup.clear();
-    this.beamSegments.length = 0;
-    this.pulses.length = 0;
-    const points = trace.points.map((point) => gridToWorld(this.level, point, OPTICS_HEIGHT));
-    for (let index = 0; index < points.length - 1; index += 1) {
-      const start = points[index];
-      const end = points[index + 1];
-      const direction = end.clone().sub(start);
-      const length = direction.length();
-      if (length < 0.01) continue;
-      const midpoint = start.clone().add(end).multiplyScalar(0.5);
-      const rotation = new THREE.Quaternion().setFromUnitVectors(Y_AXIS, direction.normalize());
-      const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, length, 10, 1, true), this.beamGlowMaterial);
-      glow.position.copy(midpoint);
-      glow.quaternion.copy(rotation);
-      this.beamGroup.add(glow);
-      const core = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, length, 8), this.beamCoreMaterial);
-      core.position.copy(midpoint);
-      core.quaternion.copy(rotation);
-      this.beamGroup.add(core);
-      const reflection = new THREE.Mesh(new THREE.PlaneGeometry(length, 0.19), this.reflectionMaterial);
-      reflection.position.copy(midpoint).setY(0.075);
-      reflection.rotation.x = -Math.PI / 2;
-      reflection.rotation.z = -Math.atan2(end.z - start.z, end.x - start.x);
-      this.beamGroup.add(reflection);
-      this.beamSegments.push({ start: start.clone(), end: end.clone(), length });
+    this.clearBeam();
+    for (const beam of trace.beams) {
+      const materials = this.beamMaterials[beam.branch % this.beamMaterials.length];
+      const points = beam.points.map((point) => gridToWorld(this.level, point, OPTICS_HEIGHT));
+      const segments: BeamSegment[] = [];
+      for (let index = 0; index < points.length - 1; index += 1) {
+        const start = points[index];
+        const end = points[index + 1];
+        const direction = end.clone().sub(start);
+        const length = direction.length();
+        if (length < 0.01) continue;
+        const midpoint = start.clone().add(end).multiplyScalar(0.5);
+        const rotation = new THREE.Quaternion().setFromUnitVectors(Y_AXIS, direction.normalize());
+        const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, length, 10, 1, true), materials.glow);
+        glow.position.copy(midpoint);
+        glow.quaternion.copy(rotation);
+        this.beamGroup.add(glow);
+        const core = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, length, 8), materials.core);
+        core.position.copy(midpoint);
+        core.quaternion.copy(rotation);
+        this.beamGroup.add(core);
+        const reflection = new THREE.Mesh(new THREE.PlaneGeometry(length, 0.19), materials.reflection);
+        reflection.position.copy(midpoint).setY(0.075);
+        reflection.rotation.x = -Math.PI / 2;
+        reflection.rotation.z = -Math.atan2(end.z - start.z, end.x - start.x);
+        this.beamGroup.add(reflection);
+        segments.push({ start: start.clone(), end: end.clone(), length });
+      }
+      const totalLength = segments.reduce((sum, segment) => sum + segment.length, 0);
+      const runIndex = this.beamRuns.length;
+      this.beamRuns.push({ segments, totalLength, branch: beam.branch });
+
+      const pulseCount = Math.min(4, Math.max(1, segments.length));
+      for (let index = 0; index < pulseCount; index += 1) {
+        const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), materials.core);
+        pulse.userData.runIndex = runIndex;
+        pulse.userData.offset = index / pulseCount;
+        this.pulses.push(pulse);
+        this.beamGroup.add(pulse);
+      }
+
+      if (points.length) {
+        const powered = beam.targetId ? trace.targets.find((target) => target.id === beam.targetId)?.powered : false;
+        const endpoint = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: this.glowTexture, color: powered ? GOLD : materials.endpoint, transparent: true,
+          blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+        }));
+        endpoint.scale.setScalar(powered ? 1.45 : 0.7);
+        endpoint.position.copy(points.at(-1)!);
+        this.beamGroup.add(endpoint);
+      }
     }
 
-    for (let index = 0; index < Math.min(7, this.beamSegments.length * 2); index += 1) {
-      const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), this.beamCoreMaterial);
-      pulse.userData.offset = index / Math.min(7, this.beamSegments.length * 2);
-      this.pulses.push(pulse);
-      this.beamGroup.add(pulse);
+    for (const state of trace.targets) {
+      const visual = this.targets.get(state.id);
+      if (!visual) continue;
+      visual.material.emissiveIntensity = state.powered ? 2.2 : 0.6;
+      visual.ringMaterial.emissiveIntensity = state.powered ? 2.0 : 0.7;
+      visual.light.intensity = state.powered ? 9 : 0.9;
     }
-    if (points.length) {
-      const endpoint = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: this.glowTexture, color: trace.hitTarget ? GOLD : CYAN, transparent: true,
-        blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
-      }));
-      endpoint.scale.setScalar(trace.hitTarget ? 1.45 : 0.75);
-      endpoint.position.copy(points.at(-1)!);
-      this.beamGroup.add(endpoint);
-    }
-    if (this.targetMaterial) this.targetMaterial.emissiveIntensity = trace.hitTarget ? 2.2 : 0.65;
-    if (this.targetLight) this.targetLight.intensity = trace.hitTarget ? 9 : 0.9;
   }
 
-  setDistrictLit(index: number, immediate = false): void {
-    this.lightTargets[index] = 1;
-    if (immediate || this.reducedMotion) this.lightLevels[index] = 1;
+  setDistrictProgress(progress: readonly number[], immediate = false): void {
+    for (let index = 0; index < 4; index += 1) {
+      this.lightTargets[index] = THREE.MathUtils.clamp(progress[index] ?? 0, 0, 1);
+      if (immediate || this.reducedMotion) this.lightLevels[index] = this.lightTargets[index];
+    }
   }
 
   setCompletedDistricts(completed: readonly number[]): void {
-    for (let index = 0; index < 4; index += 1) {
-      this.lightTargets[index] = completed.includes(index) ? 1 : 0;
-      this.lightLevels[index] = this.lightTargets[index];
-    }
+    this.setDistrictProgress(districtProgress(completed), true);
   }
 
   setInteractive(interactive: boolean): void {
@@ -254,7 +286,9 @@ export class CityScene {
     }
     const count = this.reducedMotion ? 12 : 72;
     const positions = new Float32Array(count * 3);
-    const origin = gridToWorld(this.level, this.level.target, OPTICS_HEIGHT);
+    const origin = new THREE.Vector3();
+    for (const target of this.level.targets) origin.add(gridToWorld(this.level, target.at, OPTICS_HEIGHT));
+    origin.divideScalar(Math.max(1, this.level.targets.length));
     this.burstVelocities = [];
     for (let index = 0; index < count; index += 1) {
       positions[index * 3] = origin.x;
@@ -279,13 +313,14 @@ export class CityScene {
     this.interactive = false;
     this.controls.autoRotate = !this.reducedMotion;
     this.controls.autoRotateSpeed = 0.1;
-    for (let index = 0; index < 4; index += 1) this.setDistrictLit(index);
+    this.setDistrictProgress([1, 1, 1, 1]);
     this.moveCamera(new THREE.Vector3(20, 24, 28), new THREE.Vector3(0, 0.4, 0), this.cameraViewSize(30, 40), this.reducedMotion ? 0 : 3.4);
   }
 
   private createLevelObjects(orientations: readonly MirrorOrientation[]): void {
     this.createSource();
-    this.createTarget();
+    this.level.targets.forEach((target) => this.createTarget(target));
+    this.level.splitters.forEach((splitter) => this.createSplitter(splitter.at, splitter.id));
     this.level.obstacles.forEach((point) => this.createObstacle(point));
     this.level.mirrors.forEach((mirror, index) => this.createMirror(index, mirror.at, orientations[index], mirror.id));
   }
@@ -311,33 +346,55 @@ export class CityScene {
     const light = new THREE.PointLight(CYAN, 7, 6, 1.6);
     light.position.y = OPTICS_HEIGHT + 0.25;
     group.add(light);
-    group.add(this.createLabel('光塔', '#b9fbff', 2.95));
+    group.add(this.createLabel(`光塔 · 能量${this.level.sourceEnergy}`, '#b9fbff', 2.95));
     this.levelGroup.add(group);
   }
 
-  private createTarget(): void {
-    const position = gridToWorld(this.level, this.level.target);
+  private createTarget(target: TargetConfig): void {
+    const position = gridToWorld(this.level, target.at);
     const group = new THREE.Group();
     group.position.copy(position);
     this.addRoofBase(group, '#423a35');
-    this.targetMaterial = new THREE.MeshStandardMaterial({ color: '#ffdda1', emissive: '#ffb856', emissiveIntensity: 0.75, roughness: 0.2, metalness: 0.18 });
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.24, 0), this.targetMaterial);
+    const material = new THREE.MeshStandardMaterial({ color: '#ffdda1', emissive: '#ffb856', emissiveIntensity: 0.6, roughness: 0.2, metalness: 0.18 });
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.24, 0), material);
     core.position.y = OPTICS_HEIGHT;
     group.add(core);
-    const ringMaterial = new THREE.MeshStandardMaterial({ color: '#ffdb9d', emissive: '#ffba55', emissiveIntensity: 1.6, metalness: 0.55, roughness: 0.25 });
-    this.targetRing = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.027, 8, 40), ringMaterial);
-    this.targetRing.position.y = OPTICS_HEIGHT;
-    this.targetRing.rotation.x = Math.PI / 2;
-    group.add(this.targetRing);
+    const ringMaterial = new THREE.MeshStandardMaterial({ color: '#ffdb9d', emissive: '#ffba55', emissiveIntensity: 0.7, metalness: 0.55, roughness: 0.25 });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.027, 8, 40), ringMaterial);
+    ring.position.y = OPTICS_HEIGHT;
+    ring.rotation.x = Math.PI / 2;
+    group.add(ring);
     const lowerRing = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 8, 32), ringMaterial);
     lowerRing.position.y = 1.92;
     lowerRing.rotation.x = Math.PI / 2;
     group.add(lowerRing);
-    this.targetLight = new THREE.PointLight(GOLD, 1.2, 5.5, 1.7);
-    this.targetLight.position.y = OPTICS_HEIGHT + 0.25;
-    group.add(this.targetLight);
-    group.add(this.createLabel('目标', '#ffdaa0', 3.02));
+    const light = new THREE.PointLight(GOLD, 0.9, 5.5, 1.7);
+    light.position.y = OPTICS_HEIGHT + 0.25;
+    group.add(light);
+    group.add(this.createLabel(`${target.id} · 需${target.required}`, '#ffdaa0', 3.02));
     this.levelGroup.add(group);
+    this.targets.set(target.id, { material, ringMaterial, light });
+  }
+
+  private createSplitter(at: readonly [number, number], id: string): void {
+    const root = new THREE.Group();
+    root.position.copy(gridToWorld(this.level, at));
+    this.addRoofBase(root, '#1c3a30');
+    const material = new THREE.MeshStandardMaterial({ color: '#d6ffe9', emissive: MINT, emissiveIntensity: 1.3, roughness: 0.18, metalness: 0.3 });
+    const prism = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.46, 3), material);
+    prism.position.y = OPTICS_HEIGHT;
+    prism.rotation.y = Math.PI / 6;
+    root.add(prism);
+    const ringMaterial = new THREE.MeshStandardMaterial({ color: '#9ff0c8', emissive: MINT, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.025, 8, 36), ringMaterial);
+    ring.position.y = 1.78;
+    ring.rotation.x = Math.PI / 2;
+    root.add(ring);
+    const light = new THREE.PointLight(MINT, 3.2, 4.5, 1.7);
+    light.position.y = OPTICS_HEIGHT + 0.2;
+    root.add(light);
+    root.add(this.createLabel(`分光器 ${id}`, '#c7ffe2', 3.05));
+    this.levelGroup.add(root);
   }
 
   private createMirror(index: number, at: readonly [number, number], orientation: MirrorOrientation, id: string): void {
@@ -417,19 +474,19 @@ export class CityScene {
     const context = canvas.getContext('2d')!;
     context.fillStyle = 'rgba(4, 13, 25, .78)';
     context.beginPath();
-    context.roundRect(26, 10, 204, 48, 20);
+    context.roundRect(16, 10, 224, 48, 20);
     context.fill();
     context.strokeStyle = color;
     context.globalAlpha = 0.35;
     context.stroke();
     context.globalAlpha = 1;
     context.fillStyle = color;
-    context.font = '26px "Microsoft YaHei", sans-serif';
+    context.font = '24px "Microsoft YaHei", sans-serif';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.fillText(text, 128, 35);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false, depthWrite: false }));
-    sprite.scale.set(1.35, 0.38, 1);
+    sprite.scale.set(1.5, 0.42, 1);
     sprite.position.y = y;
     sprite.renderOrder = 20;
     return sprite;
@@ -578,7 +635,6 @@ export class CityScene {
       mirror.ring.material.emissiveIntensity = THREE.MathUtils.damp(mirror.ring.material.emissiveIntensity, hovered ? 3.2 : 0.65, 10, delta);
       mirror.ring.scale.setScalar(THREE.MathUtils.damp(mirror.ring.scale.x, hovered ? 1.16 : 1, 10, delta));
     });
-    if (this.targetRing) this.targetRing.rotation.z += delta * 0.35;
 
     for (let index = 0; index < 4; index += 1) {
       this.lightLevels[index] = THREE.MathUtils.damp(this.lightLevels[index], this.lightTargets[index], 1.65, delta);
@@ -593,15 +649,15 @@ export class CityScene {
     }
 
     if (!this.reducedMotion) this.updateRain(delta);
-    const totalLength = this.beamSegments.reduce((sum, segment) => sum + segment.length, 0);
     this.pulses.forEach((pulse, index) => {
-      if (!totalLength) return;
-      let distance = ((elapsed * 2.8 + Number(pulse.userData.offset) * totalLength) % totalLength);
-      const segment = this.beamSegments.find((item) => {
+      const run = this.beamRuns[Number(pulse.userData.runIndex)];
+      if (!run || !run.totalLength) return;
+      let distance = (elapsed * 2.8 + Number(pulse.userData.offset) * run.totalLength) % run.totalLength;
+      const segment = run.segments.find((item) => {
         if (distance <= item.length) return true;
         distance -= item.length;
         return false;
-      }) ?? this.beamSegments.at(-1)!;
+      }) ?? run.segments.at(-1)!;
       pulse.position.copy(segment.start).lerp(segment.end, THREE.MathUtils.clamp(distance / segment.length, 0, 1));
       pulse.scale.setScalar(0.85 + Math.sin(elapsed * 8 + index) * 0.18);
     });
@@ -643,22 +699,42 @@ export class CityScene {
     if (this.burstLife <= 0) this.burst.visible = false;
   }
 
+  private clearBeam(): void {
+    this.beamGroup.traverse((object) => {
+      if (object instanceof THREE.Mesh) object.geometry.dispose();
+      if (object instanceof THREE.Sprite) object.material.dispose();
+    });
+    this.beamGroup.clear();
+    this.beamRuns.length = 0;
+    this.pulses.length = 0;
+  }
+
   private clearLevel(): void {
     this.hitMeshes.length = 0;
     this.mirrors.clear();
-    this.targetMaterial = undefined;
-    this.targetLight = undefined;
-    this.targetRing = undefined;
+    this.targets.clear();
     this.levelGroup.traverse((object) => {
       if (object instanceof THREE.Mesh) object.geometry.dispose();
       if (object instanceof THREE.Mesh || object instanceof THREE.Sprite) {
         const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
+        materials.forEach((material) => {
+          const mapped = material as THREE.Material & { map?: THREE.Texture | null };
+          mapped.map?.dispose();
+          material.dispose();
+        });
       }
     });
     this.levelGroup.clear();
-    this.beamGroup.clear();
+    this.clearBeam();
   }
+}
+
+export function districtProgress(completed: readonly number[]): number[] {
+  return DISTRICT_CENTERS.map((_, district) => {
+    const ids = LEVELS.filter((level) => level.district === district).map((level) => level.id);
+    const done = ids.filter((id) => completed.includes(id)).length;
+    return ids.length ? done / ids.length : 0;
+  });
 }
 
 function createGlowTexture(): THREE.CanvasTexture {

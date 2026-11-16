@@ -1,9 +1,10 @@
 import './styles.css';
 import { CityAudio } from './game/audio';
 import { LEVELS, type MirrorOrientation } from './game/levels';
-import { traceLight } from './game/optics';
+import { traceLight, type TraceResult } from './game/optics';
+import { rateLevel } from './game/score';
 import { clearProgress, loadSave, writeSave, type SaveData } from './game/storage';
-import { CityScene } from './scene/CityScene';
+import { CityScene, districtProgress } from './scene/CityScene';
 import { GameUI } from './ui/GameUI';
 
 type GameState = 'intro' | 'playing' | 'levelComplete' | 'finale';
@@ -12,6 +13,7 @@ let save: SaveData = loadSave();
 let state: GameState = 'intro';
 let currentLevel = save.currentLevel;
 let orientations: MirrorOrientation[] = initialOrientations(currentLevel);
+let moves = 0;
 let toastTimer = 0;
 let nextTimer = 0;
 const audio = new CityAudio();
@@ -48,7 +50,7 @@ function startGame(): void {
   if (!scene) return;
   if (save.completed.length === LEVELS.length) {
     state = 'finale';
-    ui.showFinale();
+    ui.showFinale(save);
     scene.showFinale();
     return;
   }
@@ -60,10 +62,12 @@ function loadLevel(index: number, immediate = false): void {
   clearTimers();
   currentLevel = index;
   state = 'playing';
+  moves = 0;
   orientations = initialOrientations(index);
   const trace = traceLight(LEVELS[index], orientations);
   ui.hideLevelComplete();
-  ui.showLevel(LEVELS[index], orientations, save.completed);
+  ui.showLevel(LEVELS[index], orientations, save.completed, save.best);
+  ui.updateStatus(trace, moves);
   scene.setLevel(index, orientations, trace, immediate);
   scene.setInteractive(true);
   save.currentLevel = index;
@@ -73,26 +77,34 @@ function loadLevel(index: number, immediate = false): void {
 function rotateMirror(index: number): void {
   if (state !== 'playing' || !orientations[index]) return;
   orientations[index] = orientations[index] === '/' ? '\\' : '/';
+  moves += 1;
   scene.updateMirror(index, orientations[index]);
   ui.updateMirrors(orientations);
   audio.rotate();
   const trace = traceLight(LEVELS[currentLevel], orientations);
   scene.setBeam(trace);
-  if (trace.hitTarget) completeLevel();
+  ui.updateStatus(trace, moves);
+  if (trace.allPowered) completeLevel(trace);
 }
 
-function completeLevel(): void {
+function completeLevel(trace: TraceResult): void {
   state = 'levelComplete';
   scene.setInteractive(false);
-  scene.setDistrictLit(currentLevel);
-  scene.celebrate();
-  audio.success(currentLevel === LEVELS.length - 1);
+  const rating = rateLevel(LEVELS[currentLevel], moves, trace);
+  const previous = save.best[currentLevel];
+  if (!previous || rating.moves < previous.moves) {
+    save.best[currentLevel] = { moves: rating.moves, stars: rating.stars };
+  }
   if (!save.completed.includes(currentLevel)) save.completed.push(currentLevel);
-  save.completed.sort();
+  save.completed.sort((a, b) => a - b);
   save.currentLevel = Math.min(currentLevel + 1, LEVELS.length - 1);
   writeSave(save);
+  scene.setDistrictProgress(districtProgress(save.completed));
+  scene.celebrate();
+  audio.success(currentLevel === LEVELS.length - 1);
+  const best = save.best[currentLevel];
   toastTimer = window.setTimeout(() => {
-    ui.showLevelComplete(LEVELS[currentLevel], currentLevel === LEVELS.length - 1);
+    ui.showLevelComplete(LEVELS[currentLevel], currentLevel === LEVELS.length - 1, rating, best);
   }, 750);
   nextTimer = window.setTimeout(nextLevel, 3600);
 }
@@ -102,7 +114,7 @@ function nextLevel(): void {
   clearTimers();
   if (currentLevel === LEVELS.length - 1) {
     state = 'finale';
-    ui.showFinale();
+    ui.showFinale(save);
     scene.showFinale();
     return;
   }

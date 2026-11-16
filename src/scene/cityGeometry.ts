@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { GRID_SIZE, LEVELS, type GridPoint, type LevelConfig } from '../game/levels';
+import { DISTRICT_CENTERS, GRID_SIZE, LEVELS, type GridPoint, type LevelConfig } from '../game/levels';
 
 export interface DistrictVisual {
   group: THREE.Group;
@@ -86,7 +86,20 @@ export function createCity(): CityVisual {
     group.add(dashB);
   }
 
-  const districts = LEVELS.map((level, index) => createDistrict(level, index, bodyMaterials, roofMaterial, darkMetal, pavement));
+  const districts = DISTRICT_CENTERS.map((center, index) => {
+    const levelsHere = LEVELS.filter((level) => level.district === index);
+    const occupied = new Set<string>();
+    let size = 7;
+    for (const level of levelsHere) {
+      size = level.size;
+      level.mirrors.forEach((mirror) => occupied.add(mirror.at.join(',')));
+      level.splitters.forEach((splitter) => occupied.add(splitter.at.join(',')));
+      level.obstacles.forEach((point) => occupied.add(point.join(',')));
+      level.targets.forEach((target) => occupied.add(target.at.join(',')));
+      occupied.add(level.source.join(','));
+    }
+    return createDistrict(center, index, occupied, size, bodyMaterials, roofMaterial, darkMetal, pavement);
+  });
   districts.forEach((district) => group.add(district.group));
   addBridge(group, darkMetal, roofMaterial);
   addStreetFurniture(group, darkMetal);
@@ -95,8 +108,10 @@ export function createCity(): CityVisual {
 }
 
 function createDistrict(
-  level: LevelConfig,
+  centerPoint: GridPoint,
   index: number,
+  occupied: Set<string>,
+  size: number,
   bodyMaterials: THREE.MeshStandardMaterial[],
   roofMaterial: THREE.MeshStandardMaterial,
   darkMetal: THREE.MeshStandardMaterial,
@@ -118,7 +133,7 @@ function createDistrict(
     color: '#ffc679', map: createGlowTexture(), transparent: true, opacity: 0,
     depthWrite: false, blending: THREE.AdditiveBlending,
   });
-  const center = new THREE.Vector3(level.districtCenter[0], 0, level.districtCenter[1]);
+  const center = new THREE.Vector3(centerPoint[0], 0, centerPoint[1]);
   const light = new THREE.PointLight('#ffbd72', 0.08, 10, 1.8);
   light.position.copy(center).add(new THREE.Vector3(0, 3.5, 0));
   group.add(light);
@@ -128,17 +143,13 @@ function createDistrict(
   plaza.receiveShadow = true;
   group.add(plaza);
 
-  const occupied = new Set<string>([
-    ...level.mirrors.map((mirror) => mirror.at.join(',')),
-    ...level.obstacles.map((point) => point.join(',')),
-    level.source.join(','), level.target.join(','),
-  ]);
   const windows: THREE.Matrix4[] = [];
+  const toWorld = ([x, z]: GridPoint) => new THREE.Vector3(centerPoint[0] + (x - 3) * GRID_SIZE, 0, centerPoint[1] + (z - 3) * GRID_SIZE);
 
-  for (let x = 0; x < level.size; x += 1) {
-    for (let z = 0; z < level.size; z += 1) {
+  for (let x = 0; x < size; x += 1) {
+    for (let z = 0; z < size; z += 1) {
       if (occupied.has(`${x},${z}`) || random() < 0.2) continue;
-      const position = gridToWorld(level, [x, z]);
+      const position = toWorld([x, z]);
       const width = 0.72 + random() * 0.2;
       const depth = 0.72 + random() * 0.2;
       const height = 0.72 + random() * 1.05;

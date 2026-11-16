@@ -1,5 +1,7 @@
 import { LEVELS, type LevelConfig, type MirrorOrientation } from '../game/levels';
-import type { SaveData } from '../game/storage';
+import type { TraceResult } from '../game/optics';
+import type { LevelRating } from '../game/score';
+import type { BestScore, SaveData } from '../game/storage';
 
 interface UICallbacks {
   onStart: () => void;
@@ -16,7 +18,10 @@ const icons = {
   muted: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Zm5 4 5 6m0-6-5 6"/></svg>',
   sound: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Zm4 4a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>',
 };
+
+const RULES_HINT = '反射 −1 能量 · 分光器平分能量 · 达到所需能量即点亮';
 
 export class GameUI {
   private readonly shell: HTMLElement;
@@ -52,11 +57,11 @@ export class GameUI {
           <div class="intro-copy">
             <p class="intro-overline">雨还没有停，城市仍在等待。</p>
             <h1><span>点亮</span><span>夜城</span></h1>
-            <p class="intro-description">旋转屋顶的镜面，让唯一的光，<br>抵达每一扇等待亮起的窗。</p>
+            <p class="intro-description">旋转屋顶的镜面，引导有限的光，<br>穿过分光器，抵达每一扇等待亮起的窗。</p>
             <button class="primary-button" data-action="start"><span id="start-label">开始点亮</span>${icons.arrow}</button>
             <p id="save-note" class="save-note"></p>
           </div>
-          <div class="intro-footnote"><span class="tiny-light"></span>一束光，四个街区，一座城。</div>
+          <div class="intro-footnote"><span class="tiny-light"></span>一束光，八段街角，一座城。</div>
         </section>
 
         <section id="hud" class="game-hud" hidden>
@@ -65,8 +70,15 @@ export class GameUI {
             <h2 id="level-name"></h2>
             <p id="level-subtitle"></p>
           </div>
-          <div class="objective"><span class="objective-dot"></span><span>引导光束抵达<span class="objective-strong">金色目标</span></span></div>
-          <div id="play-hint" class="play-hint"><span class="mouse-symbol" aria-hidden="true"></span><span>点击镜面，让光转弯</span></div>
+          <div id="status-panel" class="status-panel" aria-label="能量与目标状态">
+            <div class="status-head">
+              <span class="energy-chip">${icons.bolt}<span>光塔能量 <b id="source-energy">0</b></span></span>
+              <span class="move-chip">操作 <b id="move-count">0</b></span>
+            </div>
+            <div id="target-chips" class="target-chips"></div>
+            <p class="rules-hint">${RULES_HINT}</p>
+          </div>
+          <div id="play-hint" class="play-hint"><span class="mouse-symbol" aria-hidden="true"></span><span id="play-hint-text">点击镜面，让光转弯</span></div>
           <div class="mirror-dock" aria-label="镜面控制">
             <span class="dock-label">屋顶镜面</span>
             <div id="mirror-buttons" class="mirror-buttons"></div>
@@ -78,15 +90,17 @@ export class GameUI {
           <span class="success-orbit" aria-hidden="true"></span>
           <p class="toast-kicker">街区重新亮起</p>
           <h2 id="toast-title"></h2>
+          <div id="toast-stars" class="toast-stars" aria-hidden="true"></div>
           <p id="toast-copy"></p>
+          <p id="toast-score" class="toast-score"></p>
           <button class="primary-button" data-action="next"><span id="next-label">前往下一街区</span>${icons.arrow}</button>
         </div>
 
         <section id="finale" class="finale-screen screen-layer" hidden>
           <div class="finale-copy">
-            <p class="finale-count">4 / 4 街区已点亮</p>
+            <p class="finale-count">8 / 8 街区已点亮</p>
             <h2>这座城市，因你而亮。</h2>
-            <p>每一束被引导的光，都有抵达的地方。</p>
+            <p id="finale-stars"></p>
             <button class="primary-button" data-action="replay"><span>再玩一次</span>${icons.reset}</button>
           </div>
         </section>
@@ -141,28 +155,38 @@ export class GameUI {
     this.finale.hidden = true;
     this.toast.hidden = true;
     const continuing = save.completed.length > 0 && save.completed.length < LEVELS.length;
-    rootQuery('#start-label').textContent = continuing ? '继续点亮' : save.completed.length === 4 ? '俯瞰夜城' : '开始点亮';
-    rootQuery('#save-note').textContent = continuing ? `已为你保留 ${save.completed.length} 片街区的灯光` : '';
-    this.renderProgress(save.currentLevel, save.completed, true);
+    rootQuery('#start-label').textContent = continuing ? '继续点亮' : save.completed.length === LEVELS.length ? '俯瞰夜城' : '开始点亮';
+    rootQuery('#save-note').textContent = continuing ? `已为你保留 ${save.completed.length} 段街角的灯光` : '';
+    this.renderProgress(save.currentLevel, save.completed, true, save.best);
   }
 
-  showLevel(level: LevelConfig, orientations: readonly MirrorOrientation[], completed: readonly number[]): void {
+  showLevel(level: LevelConfig, orientations: readonly MirrorOrientation[], completed: readonly number[], best: Record<number, BestScore>): void {
     this.currentLevel = level.id;
     this.shell.dataset.screen = 'playing';
     this.intro.hidden = true;
     this.finale.hidden = true;
     this.toast.hidden = true;
     this.hud.hidden = false;
-    rootQuery('#level-number').textContent = `第 ${level.id + 1} 关 / 共 4 关`;
+    rootQuery('#level-number').textContent = `第 ${level.id + 1} 关 / 共 ${LEVELS.length} 关 · ${level.chapter}`;
     rootQuery('#level-name').textContent = level.name;
     rootQuery('#level-subtitle').textContent = level.subtitle;
-    rootQuery('#play-hint').hidden = level.id !== 0;
+    rootQuery('#source-energy').textContent = String(level.sourceEnergy);
+    rootQuery('#target-chips').innerHTML = level.targets.map((target) => `
+      <span class="target-chip" data-target="${target.id}">
+        <i class="target-dot"></i><b>${target.id}</b><span class="target-need">需 ${target.required}</span><span class="target-received">0</span>
+      </span>`).join('');
+    const hint = rootQuery('#play-hint');
+    const hintText = rootQuery('#play-hint-text');
+    if (level.id === 0) { hint.hidden = false; hintText.textContent = '点击镜面，让光转弯'; }
+    else if (level.id === 2) { hint.hidden = false; hintText.textContent = '分光器把光分成两束，点亮两座目标'; }
+    else if (level.id === 4) { hint.hidden = false; hintText.textContent = '能量有限，试试更短的路线'; }
+    else hint.hidden = true;
     this.mirrorButtons.innerHTML = level.mirrors.map((mirror, index) => `
-      <button class="mirror-button" data-mirror="${index}" aria-label="镜面 ${mirror.id}，当前方向 ${orientations[index]}，点击切换" aria-pressed="${orientations[index] === '/' }">
+      <button class="mirror-button" data-mirror="${index}" aria-label="镜面 ${mirror.id}，当前方向 ${orientations[index]}，点击切换" aria-pressed="${orientations[index] === '/'}">
         <span class="mirror-id">${mirror.id}</span><span class="mirror-glyph" aria-hidden="true">${orientations[index]}</span>
       </button>`).join('');
-    this.renderProgress(level.id, completed, false);
-    this.announce(`第 ${level.id + 1} 关，${level.name}。点击镜面，让光束抵达金色目标。`);
+    this.renderProgress(level.id, completed, false, best);
+    this.announce(`第 ${level.id + 1} 关，${level.name}。${level.subtitle}`);
   }
 
   updateMirrors(orientations: readonly MirrorOrientation[]): void {
@@ -178,10 +202,24 @@ export class GameUI {
     });
   }
 
-  showLevelComplete(level: LevelConfig, isFinal: boolean): void {
+  updateStatus(trace: TraceResult, moves: number): void {
+    rootQuery('#move-count').textContent = String(moves);
+    for (const target of trace.targets) {
+      const chip = this.shell.querySelector<HTMLElement>(`[data-target="${target.id}"]`);
+      if (!chip) continue;
+      chip.classList.toggle('is-powered', target.powered);
+      chip.querySelector('.target-received')!.textContent = String(target.received);
+      chip.setAttribute('aria-label', `目标 ${target.id}，需要 ${target.required} 能量，当前 ${target.received}，${target.powered ? '已点亮' : '未点亮'}`);
+    }
+  }
+
+  showLevelComplete(level: LevelConfig, isFinal: boolean, rating: LevelRating, best: BestScore): void {
     this.shell.dataset.screen = 'complete';
     rootQuery('#toast-title').textContent = `${level.name}，亮了`;
+    rootQuery('#toast-stars').innerHTML = [1, 2, 3].map((n) => `<span class="${n <= rating.stars ? 'star-on' : 'star-off'}">★</span>`).join('');
     rootQuery('#toast-copy').textContent = isFinal ? '最后一片夜色退去，看看这座城市吧。' : '窗灯与街灯，会记住这束光。';
+    const efficiency = rating.showEfficiency ? ` · 能量利用 ${Math.round(rating.efficiency * 100)}%` : '';
+    rootQuery('#toast-score').textContent = `操作 ${rating.moves} 次${efficiency} · 个人最佳 ${best.moves} 次`;
     rootQuery('#next-label').textContent = isFinal ? '俯瞰全城' : '前往下一街区';
     this.toast.hidden = false;
     rootQuery<HTMLButtonElement>('[data-action="next"]').focus({ preventScroll: true });
@@ -191,14 +229,16 @@ export class GameUI {
     this.toast.hidden = true;
   }
 
-  showFinale(): void {
+  showFinale(save: SaveData): void {
     this.shell.dataset.screen = 'finale';
     this.hud.hidden = true;
     this.toast.hidden = true;
     this.intro.hidden = true;
     this.finale.hidden = false;
-    this.renderProgress(3, [0, 1, 2, 3], false);
-    this.announce('四个街区全部点亮。这座城市，因你而亮。');
+    const totalStars = Object.values(save.best).reduce((sum, score) => sum + score.stars, 0);
+    rootQuery('#finale-stars').textContent = `收集 ${totalStars} / ${LEVELS.length * 3} ★ · 点击顶部街区可重玩任意关卡`;
+    this.renderProgress(LEVELS.length - 1, LEVELS.map((level) => level.id), false, save.best);
+    this.announce('八个街区全部点亮。这座城市，因你而亮。');
   }
 
   setMuted(muted: boolean): void {
@@ -218,12 +258,14 @@ export class GameUI {
     rootQuery('#fatal-message').textContent = message;
   }
 
-  private renderProgress(current: number, completed: readonly number[], intro: boolean): void {
+  private renderProgress(current: number, completed: readonly number[], intro: boolean, best: Record<number, BestScore>): void {
     rootQuery('#level-list').innerHTML = LEVELS.map((level, index) => {
       const isComplete = completed.includes(index);
       const isCurrent = index === current && !intro;
-      const unlocked = index <= Math.min(completed.length, 3);
-      return `<li><button data-level="${index}" class="progress-step${isComplete ? ' is-complete' : ''}${isCurrent ? ' is-current' : ''}" ${unlocked ? '' : 'disabled'} aria-label="第 ${index + 1} 关 ${level.name}${isComplete ? '，已点亮' : ''}" ${isCurrent ? 'aria-current="step"' : ''}><span>${index + 1}</span><i></i></button></li>`;
+      const unlocked = index <= Math.min(completed.length, LEVELS.length - 1);
+      const stars = best[index]?.stars ?? 0;
+      const starText = isComplete && stars ? `，${stars} 星` : '';
+      return `<li><button data-level="${index}" class="progress-step${isComplete ? ' is-complete' : ''}${isCurrent ? ' is-current' : ''}" ${unlocked ? '' : 'disabled'} aria-label="第 ${index + 1} 关 ${level.name}${isComplete ? '，已点亮' : ''}${starText}" ${isCurrent ? 'aria-current="step"' : ''}><span>${index + 1}</span><i></i></button></li>`;
     }).join('');
   }
 }
