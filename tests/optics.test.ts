@@ -129,8 +129,80 @@ describe('handcrafted mainline levels', () => {
     });
   }
 
-  it('offers genuine alternative solutions on the energy trade-off level', () => {
-    expect(solve(LEVELS[4]).count).toBeGreaterThan(1);
+  it('keeps every device, target, obstacle and source on distinct cells', () => {
+    for (const level of LEVELS) {
+      const cells = [
+        level.source,
+        ...level.mirrors.map((mirror) => mirror.at),
+        ...level.splitters.map((splitter) => splitter.at),
+        ...level.targets.map((target) => target.at),
+        ...level.obstacles,
+      ].map(([x, z]) => `${x},${z}`);
+      expect(new Set(cells).size).toBe(cells.length);
+    }
+  });
+
+  it('shows a beam that reaches a target without enough energy on the trade-off level', () => {
+    const level = LEVELS[4];
+    const wasted = traceLight(level, ['\\', '\\', '/'] as MirrorOrientation[]);
+    const t1 = wasted.targets.find((t) => t.id === 'T1')!;
+    expect(t1.received).toBeGreaterThan(0);
+    expect(t1.received).toBeLessThan(t1.required);
+    expect(t1.powered).toBe(false);
+    expect(wasted.allPowered).toBe(false);
+    const correct = traceLight(level, ['\\', '\\', '\\'] as MirrorOrientation[]);
+    expect(correct.targets.find((t) => t.id === 'T2')!.powered).toBe(true);
+    expect(traceLight(level, level.solution).allPowered).toBe(true);
+  });
+
+  it('never lets flipping every mirror solve the mid and late levels', () => {
+    for (const level of LEVELS.slice(2)) {
+      const flipAll = level.mirrors.map((mirror) => (mirror.initial === '/' ? '\\' : '/') as MirrorOrientation);
+      expect(traceLight(level, flipAll).allPowered).toBe(false);
+    }
+  });
+
+  it('defeats a naive player who only flips mirrors that immediately light a target', () => {
+    for (const level of LEVELS.slice(2)) {
+      let combo = level.mirrors.map((mirror) => mirror.initial);
+      const lit = (orientations: readonly MirrorOrientation[]) =>
+        traceLight(level, orientations).targets.filter((target) => target.powered).length;
+      for (let pass = 0; pass < level.mirrors.length * 2; pass += 1) {
+        const hit = new Set<number>();
+        for (const beam of traceLight(level, combo).beams) {
+          for (const point of beam.points) {
+            level.mirrors.forEach((mirror, index) => {
+              if (mirror.at[0] === point[0] && mirror.at[1] === point[1]) hit.add(index);
+            });
+          }
+        }
+        let improved = false;
+        for (const index of hit) {
+          const next = combo.slice();
+          next[index] = (next[index] === '/' ? '\\' : '/') as MirrorOrientation;
+          if (lit(next) > lit(combo)) {
+            combo = next;
+            improved = true;
+          }
+        }
+        if (!improved) break;
+      }
+      expect(traceLight(level, combo).allPowered).toBe(false);
+    }
+  });
+
+  it('contains locally tempting layouts that light one target but fail globally', () => {
+    for (const level of LEVELS.slice(2)) {
+      const initial = level.mirrors.map((mirror) => mirror.initial);
+      let traps = 0;
+      for (let mask = 0; mask < 2 ** level.mirrors.length; mask += 1) {
+        const combo = level.mirrors.map((_, i) => ((mask >> i) & 1 ? '/' : '\\') as MirrorOrientation);
+        if (hamming(initial, combo) > 2) continue;
+        const lit = traceLight(level, combo).targets.filter((target) => target.powered).length;
+        if (lit > 0 && lit < level.targets.length) traps += 1;
+      }
+      expect(traps).toBeGreaterThan(0);
+    }
   });
 
   it('resets to the authored initial layout', () => {

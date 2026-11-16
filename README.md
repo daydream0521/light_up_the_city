@@ -37,4 +37,4 @@ npm run dev
 - `src/ui`：语义化界面与流程状态。
 - `tests`：光路及关卡可解性回归测试。
 
-协作与视觉约定见 [公共设计规范](docs/DESIGN.md) 和 [开发指南](docs/CONTRIBUTING.md)。
+协作与视觉约定见 [公共设计规范](docs/DESIGN.md) 和 [开发指南](docs/CONTRIBUTING.md)；逐关决策、误判与机制限制见 [关卡设计说明](docs/LEVEL-DESIGN.md)。

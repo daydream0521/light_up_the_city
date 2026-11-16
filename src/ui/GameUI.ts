@@ -179,7 +179,10 @@ export class GameUI {
     const hintText = rootQuery('#play-hint-text');
     if (level.id === 0) { hint.hidden = false; hintText.textContent = '点击镜面，让光转弯'; }
     else if (level.id === 2) { hint.hidden = false; hintText.textContent = '分光器把光分成两束，点亮两座目标'; }
-    else if (level.id === 4) { hint.hidden = false; hintText.textContent = '能量有限，试试更短的路线'; }
+    else if (level.id === 4) { hint.hidden = false; hintText.textContent = '照到不等于点亮：看清目标还差多少能量'; }
+    else if (level.id === 5) { hint.hidden = false; hintText.textContent = '回光不会增加能量：别把光送回分光器'; }
+    else if (level.id === 6) { hint.hidden = false; hintText.textContent = '有一面镜子同时服务两束光：翻它前先看两条光路'; }
+    else if (level.id === 7) { hint.hidden = false; hintText.textContent = '三个目标共用一份预算：先算清每一跳的损耗'; }
     else hint.hidden = true;
     this.mirrorButtons.innerHTML = level.mirrors.map((mirror, index) => `
       <button class="mirror-button" data-mirror="${index}" aria-label="镜面 ${mirror.id}，当前方向 ${orientations[index]}，点击切换" aria-pressed="${orientations[index] === '/'}">
