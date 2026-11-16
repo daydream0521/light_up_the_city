@@ -10,8 +10,8 @@
 | 本地 Chrome | 开始、重置、声音、四关、下一关、刷新续玩、终局、重玩 | 通过 | `tests/e2e/desktop.spec.ts`；下方真实截图 |
 | 本地 Chrome | 390×844 触摸首关、下一关与重置 | 通过 | `tests/e2e/mobile.spec.ts` |
 | 依赖 | 生产与开发依赖审计 | 通过 | `npm audit`：0 vulnerabilities |
-| 公网 | Qoder Sites 发布状态 | 待发布 | 发布后更新 |
-| 公网 | 无登录打开、开始并完成首关 | 待发布 | 发布后使用独立浏览器上下文验收 |
+| 公网 | Qoder Sites 发布与公开访问 | 通过 | `published: true`、发布操作已提交；访问策略为 `public`，无需登录 |
+| 公网 Chrome | 无登录打开、开始并完成首关 | 通过 | 独立浏览器上下文；首页 HTTP 200，首关完成存档为 `[0]`，控制台无错误 |
 
 ## 关键截图
 
@@ -20,6 +20,10 @@
 - [第四关与累积亮灯](screenshots/level-4.png)
 - [全城终局](screenshots/finale.png)
 - [移动端首关](screenshots/mobile-level-1.png)
+- [公网进入页](screenshots/public-intro.png)
+- [公网首关实际点亮](screenshots/public-level-1-complete.png)
+
+公网地址：https://light-up-the-city-oqwsk12x62f.qoder.zone
 
 ## 开发过程摘要
 

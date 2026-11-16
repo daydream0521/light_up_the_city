@@ -2,6 +2,10 @@
 
 一款纯前端、程序化生成的浏览器 3D 光路解谜游戏。旋转屋顶镜面，让光塔的光束抵达目标建筑，依次唤醒四个雨夜街区。
 
+## 在线体验
+
+[打开 Qoder Sites 公网版本](https://light-up-the-city-oqwsk12x62f.qoder.zone)，无需登录。实际验收记录与关键截图见 [验收记录](docs/ACCEPTANCE.md)。
+
 ## 本地运行
 
 ```bash
