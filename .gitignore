@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.vite/
+.qoder/
+*.local
+*.log
+*.qoder.site
+.DS_Store
+test-results/

@@ -1,0 +1,703 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { LEVELS, OPTICS_HEIGHT, type LevelConfig, type MirrorOrientation } from '../game/levels';
+import type { TraceResult } from '../game/optics';
+import { createCity, gridToWorld, type CityVisual } from './cityGeometry';
+
+interface MirrorVisual {
+  rotor: THREE.Group;
+  ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshStandardMaterial>;
+  targetRotation: number;
+}
+
+interface BeamSegment {
+  start: THREE.Vector3;
+  end: THREE.Vector3;
+  length: number;
+}
+
+interface CameraTween {
+  fromPosition: THREE.Vector3;
+  toPosition: THREE.Vector3;
+  fromTarget: THREE.Vector3;
+  toTarget: THREE.Vector3;
+  fromSize: number;
+  toSize: number;
+  elapsed: number;
+  duration: number;
+}
+
+const CYAN = '#69e6f2';
+const GOLD = '#ffcf82';
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+
+export class CityScene {
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly scene = new THREE.Scene();
+  private readonly camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 140);
+  private readonly controls: OrbitControls;
+  private readonly composer: EffectComposer;
+  private readonly city: CityVisual;
+  private readonly clock = new THREE.Clock();
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly pointer = new THREE.Vector2();
+  private readonly hitMeshes: THREE.Mesh[] = [];
+  private readonly mirrors = new Map<number, MirrorVisual>();
+  private readonly beamGroup = new THREE.Group();
+  private readonly levelGroup = new THREE.Group();
+  private readonly beamSegments: BeamSegment[] = [];
+  private readonly pulses: THREE.Mesh[] = [];
+  private readonly lightLevels = [0, 0, 0, 0];
+  private readonly lightTargets = [0, 0, 0, 0];
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private readonly darkWindowColor = new THREE.Color('#294056');
+  private readonly warmWindowColor = new THREE.Color('#ffd18a');
+  private readonly rain: THREE.LineSegments;
+  private readonly rainPositions: Float32Array;
+  private readonly rainCount: number;
+  private readonly glowTexture = createGlowTexture();
+  private readonly beamCoreMaterial = new THREE.MeshBasicMaterial({ color: '#d8feff', toneMapped: false });
+  private readonly beamGlowMaterial = new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  private readonly reflectionMaterial = new THREE.MeshBasicMaterial({ color: '#36d9ec', transparent: true, opacity: 0.075, blending: THREE.AdditiveBlending, depthWrite: false });
+  private level: LevelConfig = LEVELS[0];
+  private targetMaterial?: THREE.MeshStandardMaterial;
+  private targetLight?: THREE.PointLight;
+  private targetRing?: THREE.Mesh;
+  private burst?: THREE.Points;
+  private burstVelocities: THREE.Vector3[] = [];
+  private burstLife = 0;
+  private cameraTween?: CameraTween;
+  private viewSize = 29;
+  private hovered = -1;
+  private pointerStart = new THREE.Vector2();
+  private pointerDown = false;
+  private dragged = false;
+  private interactive = false;
+  private screen: 'intro' | 'level' | 'finale' = 'intro';
+
+  constructor(private readonly container: HTMLElement, private readonly onMirror: (index: number) => void) {
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.65));
+    this.renderer.setSize(container.clientWidth, container.clientHeight);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.18;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(this.renderer.domElement);
+    this.renderer.domElement.setAttribute('aria-label', '点亮夜城 3D 游戏场景');
+    this.renderer.domElement.setAttribute('tabindex', '0');
+
+    this.scene.background = new THREE.Color('#050b18');
+    this.scene.fog = new THREE.FogExp2('#091426', 0.023);
+    this.camera.position.set(18, 21, 25);
+    this.camera.lookAt(0, 0, 0);
+
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.065;
+    this.controls.enablePan = false;
+    this.controls.minZoom = 0.72;
+    this.controls.maxZoom = 1.8;
+    this.controls.minPolarAngle = Math.PI * 0.19;
+    this.controls.maxPolarAngle = Math.PI * 0.39;
+    this.controls.rotateSpeed = 0.42;
+    this.controls.zoomSpeed = 0.65;
+    this.controls.autoRotate = !this.reducedMotion;
+    this.controls.autoRotateSpeed = 0.16;
+    this.controls.target.set(0, 0.6, 0);
+
+    const hemisphere = new THREE.HemisphereLight('#9dc5ed', '#0b1826', 2.15);
+    this.scene.add(hemisphere);
+    const moon = new THREE.DirectionalLight('#b3d3ff', 2.65);
+    moon.position.set(-10, 19, 7);
+    moon.castShadow = true;
+    moon.shadow.mapSize.set(2048, 2048);
+    moon.shadow.camera.left = -15;
+    moon.shadow.camera.right = 15;
+    moon.shadow.camera.top = 15;
+    moon.shadow.camera.bottom = -15;
+    moon.shadow.camera.near = 1;
+    moon.shadow.camera.far = 50;
+    moon.shadow.bias = -0.0004;
+    this.scene.add(moon);
+    const rim = new THREE.DirectionalLight('#286f9a', 1.1);
+    rim.position.set(12, 8, -14);
+    this.scene.add(rim);
+
+    this.city = createCity();
+    this.scene.add(this.city.group);
+    this.scene.add(this.levelGroup, this.beamGroup);
+
+    this.rainCount = window.innerWidth < 800 ? 280 : 560;
+    const rain = this.createRain(this.rainCount);
+    this.rain = rain.lines;
+    this.rainPositions = rain.positions;
+    this.scene.add(this.rain);
+
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 0.72, 0.65, 0.72);
+    bloom.threshold = 0.74;
+    bloom.strength = window.innerWidth < 800 ? 0.42 : 0.52;
+    bloom.radius = 0.42;
+    this.composer.addPass(bloom);
+    this.composer.addPass(new OutputPass());
+
+    this.bindPointerEvents();
+    window.addEventListener('resize', () => this.resize());
+    this.resize();
+    this.showIntro(true);
+    this.renderer.setAnimationLoop(() => this.animate());
+  }
+
+  showIntro(immediate = false): void {
+    this.screen = 'intro';
+    this.interactive = false;
+    this.controls.autoRotate = !this.reducedMotion;
+    this.moveCamera(new THREE.Vector3(18, 21, 25), new THREE.Vector3(0, 0.6, 0), this.cameraViewSize(29, 39), immediate ? 0 : 1.8);
+  }
+
+  setLevel(index: number, orientations: readonly MirrorOrientation[], trace: TraceResult, immediate = false): void {
+    this.level = LEVELS[index];
+    this.screen = 'level';
+    this.interactive = true;
+    this.controls.autoRotate = false;
+    this.clearLevel();
+    this.createLevelObjects(orientations);
+    this.setBeam(trace);
+    const center = new THREE.Vector3(this.level.districtCenter[0], 0.75, this.level.districtCenter[1]);
+    this.moveCamera(center.clone().add(new THREE.Vector3(9.6, 12.2, 13.4)), center, this.cameraViewSize(13.6, 17.2), immediate ? 0 : 1.55);
+  }
+
+  updateMirror(index: number, orientation: MirrorOrientation): void {
+    const mirror = this.mirrors.get(index);
+    if (mirror) mirror.targetRotation = orientation === '/' ? Math.PI / 4 : -Math.PI / 4;
+  }
+
+  setBeam(trace: TraceResult): void {
+    this.beamGroup.clear();
+    this.beamSegments.length = 0;
+    this.pulses.length = 0;
+    const points = trace.points.map((point) => gridToWorld(this.level, point, OPTICS_HEIGHT));
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const start = points[index];
+      const end = points[index + 1];
+      const direction = end.clone().sub(start);
+      const length = direction.length();
+      if (length < 0.01) continue;
+      const midpoint = start.clone().add(end).multiplyScalar(0.5);
+      const rotation = new THREE.Quaternion().setFromUnitVectors(Y_AXIS, direction.normalize());
+      const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, length, 10, 1, true), this.beamGlowMaterial);
+      glow.position.copy(midpoint);
+      glow.quaternion.copy(rotation);
+      this.beamGroup.add(glow);
+      const core = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, length, 8), this.beamCoreMaterial);
+      core.position.copy(midpoint);
+      core.quaternion.copy(rotation);
+      this.beamGroup.add(core);
+      const reflection = new THREE.Mesh(new THREE.PlaneGeometry(length, 0.19), this.reflectionMaterial);
+      reflection.position.copy(midpoint).setY(0.075);
+      reflection.rotation.x = -Math.PI / 2;
+      reflection.rotation.z = -Math.atan2(end.z - start.z, end.x - start.x);
+      this.beamGroup.add(reflection);
+      this.beamSegments.push({ start: start.clone(), end: end.clone(), length });
+    }
+
+    for (let index = 0; index < Math.min(7, this.beamSegments.length * 2); index += 1) {
+      const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), this.beamCoreMaterial);
+      pulse.userData.offset = index / Math.min(7, this.beamSegments.length * 2);
+      this.pulses.push(pulse);
+      this.beamGroup.add(pulse);
+    }
+    if (points.length) {
+      const endpoint = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this.glowTexture, color: trace.hitTarget ? GOLD : CYAN, transparent: true,
+        blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+      }));
+      endpoint.scale.setScalar(trace.hitTarget ? 1.45 : 0.75);
+      endpoint.position.copy(points.at(-1)!);
+      this.beamGroup.add(endpoint);
+    }
+    if (this.targetMaterial) this.targetMaterial.emissiveIntensity = trace.hitTarget ? 2.2 : 0.65;
+    if (this.targetLight) this.targetLight.intensity = trace.hitTarget ? 9 : 0.9;
+  }
+
+  setDistrictLit(index: number, immediate = false): void {
+    this.lightTargets[index] = 1;
+    if (immediate || this.reducedMotion) this.lightLevels[index] = 1;
+  }
+
+  setCompletedDistricts(completed: readonly number[]): void {
+    for (let index = 0; index < 4; index += 1) {
+      this.lightTargets[index] = completed.includes(index) ? 1 : 0;
+      this.lightLevels[index] = this.lightTargets[index];
+    }
+  }
+
+  setInteractive(interactive: boolean): void {
+    this.interactive = interactive;
+    this.hovered = -1;
+    this.renderer.domElement.classList.remove('is-hovering');
+  }
+
+  celebrate(): void {
+    if (this.burst) {
+      this.scene.remove(this.burst);
+      this.burst.geometry.dispose();
+      (this.burst.material as THREE.Material).dispose();
+    }
+    const count = this.reducedMotion ? 12 : 72;
+    const positions = new Float32Array(count * 3);
+    const origin = gridToWorld(this.level, this.level.target, OPTICS_HEIGHT);
+    this.burstVelocities = [];
+    for (let index = 0; index < count; index += 1) {
+      positions[index * 3] = origin.x;
+      positions[index * 3 + 1] = origin.y;
+      positions[index * 3 + 2] = origin.z;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.8 + Math.random() * 2;
+      this.burstVelocities.push(new THREE.Vector3(Math.cos(angle) * speed, 1.2 + Math.random() * 2.3, Math.sin(angle) * speed));
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.burst = new THREE.Points(geometry, new THREE.PointsMaterial({
+      color: '#ffe0a4', size: 0.12, map: this.glowTexture, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+    }));
+    this.burstLife = 2.2;
+    this.scene.add(this.burst);
+  }
+
+  showFinale(): void {
+    this.screen = 'finale';
+    this.interactive = false;
+    this.controls.autoRotate = !this.reducedMotion;
+    this.controls.autoRotateSpeed = 0.1;
+    for (let index = 0; index < 4; index += 1) this.setDistrictLit(index);
+    this.moveCamera(new THREE.Vector3(20, 24, 28), new THREE.Vector3(0, 0.4, 0), this.cameraViewSize(30, 40), this.reducedMotion ? 0 : 3.4);
+  }
+
+  private createLevelObjects(orientations: readonly MirrorOrientation[]): void {
+    this.createSource();
+    this.createTarget();
+    this.level.obstacles.forEach((point) => this.createObstacle(point));
+    this.level.mirrors.forEach((mirror, index) => this.createMirror(index, mirror.at, orientations[index], mirror.id));
+  }
+
+  private createSource(): void {
+    const position = gridToWorld(this.level, this.level.source);
+    const group = new THREE.Group();
+    group.position.copy(position);
+    this.addRoofBase(group, '#163a4b');
+    const material = new THREE.MeshStandardMaterial({ color: '#b9fbff', emissive: CYAN, emissiveIntensity: 1.7, roughness: 0.16, metalness: 0.2 });
+    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.26, 0), material);
+    crystal.position.y = OPTICS_HEIGHT;
+    crystal.rotation.z = Math.PI / 4;
+    group.add(crystal);
+    const cageMaterial = new THREE.MeshStandardMaterial({ color: '#5cc7d5', emissive: '#1b8b9c', emissiveIntensity: 0.8, metalness: 0.75, roughness: 0.25 });
+    for (let ring = 0; ring < 2; ring += 1) {
+      const mesh = new THREE.Mesh(new THREE.TorusGeometry(0.38 + ring * 0.12, 0.022, 8, 32), cageMaterial);
+      mesh.position.y = OPTICS_HEIGHT;
+      mesh.rotation.x = Math.PI / 2;
+      mesh.rotation.y = ring * Math.PI / 2;
+      group.add(mesh);
+    }
+    const light = new THREE.PointLight(CYAN, 7, 6, 1.6);
+    light.position.y = OPTICS_HEIGHT + 0.25;
+    group.add(light);
+    group.add(this.createLabel('光塔', '#b9fbff', 2.95));
+    this.levelGroup.add(group);
+  }
+
+  private createTarget(): void {
+    const position = gridToWorld(this.level, this.level.target);
+    const group = new THREE.Group();
+    group.position.copy(position);
+    this.addRoofBase(group, '#423a35');
+    this.targetMaterial = new THREE.MeshStandardMaterial({ color: '#ffdda1', emissive: '#ffb856', emissiveIntensity: 0.75, roughness: 0.2, metalness: 0.18 });
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.24, 0), this.targetMaterial);
+    core.position.y = OPTICS_HEIGHT;
+    group.add(core);
+    const ringMaterial = new THREE.MeshStandardMaterial({ color: '#ffdb9d', emissive: '#ffba55', emissiveIntensity: 1.6, metalness: 0.55, roughness: 0.25 });
+    this.targetRing = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.027, 8, 40), ringMaterial);
+    this.targetRing.position.y = OPTICS_HEIGHT;
+    this.targetRing.rotation.x = Math.PI / 2;
+    group.add(this.targetRing);
+    const lowerRing = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 8, 32), ringMaterial);
+    lowerRing.position.y = 1.92;
+    lowerRing.rotation.x = Math.PI / 2;
+    group.add(lowerRing);
+    this.targetLight = new THREE.PointLight(GOLD, 1.2, 5.5, 1.7);
+    this.targetLight.position.y = OPTICS_HEIGHT + 0.25;
+    group.add(this.targetLight);
+    group.add(this.createLabel('目标', '#ffdaa0', 3.02));
+    this.levelGroup.add(group);
+  }
+
+  private createMirror(index: number, at: readonly [number, number], orientation: MirrorOrientation, id: string): void {
+    const root = new THREE.Group();
+    root.position.copy(gridToWorld(this.level, at));
+    this.addRoofBase(root, '#173849');
+    const rotor = new THREE.Group();
+    rotor.rotation.y = orientation === '/' ? Math.PI / 4 : -Math.PI / 4;
+    root.add(rotor);
+
+    const frame = new THREE.Mesh(new RoundedBoxGeometry(1.02, 0.9, 0.09, 3, 0.06), new THREE.MeshStandardMaterial({
+      color: '#315a6b', metalness: 0.85, roughness: 0.2, emissive: '#176477', emissiveIntensity: 0.35,
+    }));
+    frame.position.y = OPTICS_HEIGHT;
+    rotor.add(frame);
+    const panel = new THREE.Mesh(new RoundedBoxGeometry(0.9, 0.78, 0.035, 3, 0.04), new THREE.MeshPhysicalMaterial({
+      color: '#c8f6ff', map: createMirrorTexture(), metalness: 0.68, roughness: 0.12,
+      clearcoat: 1, clearcoatRoughness: 0.08, emissive: '#3da6b7', emissiveIntensity: 0.35,
+    }));
+    panel.position.set(0, OPTICS_HEIGHT, 0.055);
+    rotor.add(panel);
+    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 0.38, 10), new THREE.MeshStandardMaterial({ color: '#8ab6c2', metalness: 0.9, roughness: 0.2 }));
+    stand.position.y = 1.92;
+    root.add(stand);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.54, 0.028, 8, 36), new THREE.MeshStandardMaterial({
+      color: '#62c9d8', emissive: CYAN, emissiveIntensity: 0.65, transparent: true, opacity: 0.8,
+    }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 1.78;
+    root.add(ring);
+    root.add(this.createLabel(`镜面 ${id}`, '#d4fbff', 3.05));
+
+    const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.69, 0.69, 1.75, 12), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+    hit.position.y = 2.15;
+    hit.userData.mirrorIndex = index;
+    root.add(hit);
+    this.hitMeshes.push(hit);
+    this.mirrors.set(index, { rotor, ring, targetRotation: rotor.rotation.y });
+    this.levelGroup.add(root);
+  }
+
+  private createObstacle(at: readonly [number, number]): void {
+    const root = new THREE.Group();
+    root.position.copy(gridToWorld(this.level, at));
+    const body = new THREE.Mesh(new RoundedBoxGeometry(0.91, 2.65, 0.91, 2, 0.06), new THREE.MeshStandardMaterial({ color: '#28303b', roughness: 0.55, metalness: 0.3 }));
+    body.position.y = 1.49;
+    body.castShadow = true;
+    root.add(body);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.19, 0.94), new THREE.MeshStandardMaterial({ color: '#a06b39', emissive: '#c2682f', emissiveIntensity: 0.3, roughness: 0.4 }));
+    band.position.y = OPTICS_HEIGHT;
+    root.add(band);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 0.22, 8), new THREE.MeshStandardMaterial({ color: '#111c28', metalness: 0.7, roughness: 0.3 }));
+    cap.position.y = 2.92;
+    root.add(cap);
+    const warning = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), new THREE.MeshBasicMaterial({ color: '#ff8c5c' }));
+    warning.position.y = 3.07;
+    root.add(warning);
+    this.levelGroup.add(root);
+  }
+
+  private addRoofBase(group: THREE.Group, color: string): void {
+    const material = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.4 });
+    const base = new THREE.Mesh(new RoundedBoxGeometry(0.9, 1.55, 0.9, 2, 0.055), material);
+    base.position.y = 0.94;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    group.add(base);
+    const rim = new THREE.Mesh(new THREE.BoxGeometry(1.01, 0.1, 1.01), new THREE.MeshStandardMaterial({ color: '#335165', metalness: 0.65, roughness: 0.28 }));
+    rim.position.y = 1.74;
+    group.add(rim);
+  }
+
+  private createLabel(text: string, color: string, y: number): THREE.Sprite {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 72;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = 'rgba(4, 13, 25, .78)';
+    context.beginPath();
+    context.roundRect(26, 10, 204, 48, 20);
+    context.fill();
+    context.strokeStyle = color;
+    context.globalAlpha = 0.35;
+    context.stroke();
+    context.globalAlpha = 1;
+    context.fillStyle = color;
+    context.font = '26px "Microsoft YaHei", sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(text, 128, 35);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false, depthWrite: false }));
+    sprite.scale.set(1.35, 0.38, 1);
+    sprite.position.y = y;
+    sprite.renderOrder = 20;
+    return sprite;
+  }
+
+  private bindPointerEvents(): void {
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      this.pointerDown = true;
+      this.dragged = false;
+      this.pointerStart.set(event.clientX, event.clientY);
+      canvas.classList.add('is-dragging');
+    });
+    canvas.addEventListener('pointermove', (event) => {
+      if (this.pointerDown && this.pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 6) this.dragged = true;
+      if (!this.pointerDown && this.interactive) this.updateHover(event);
+    });
+    canvas.addEventListener('pointerup', (event) => {
+      canvas.classList.remove('is-dragging');
+      if (this.pointerDown && !this.dragged && this.interactive) {
+        const index = this.pickMirror(event);
+        if (index >= 0) this.onMirror(index);
+      }
+      this.pointerDown = false;
+      this.dragged = false;
+    });
+    canvas.addEventListener('pointercancel', () => {
+      this.pointerDown = false;
+      this.dragged = false;
+      canvas.classList.remove('is-dragging');
+    });
+    canvas.addEventListener('pointerleave', () => {
+      if (!this.pointerDown) this.setHovered(-1);
+    });
+  }
+
+  private updateHover(event: PointerEvent): void {
+    this.setHovered(this.pickMirror(event));
+  }
+
+  private pickMirror(event: PointerEvent): number {
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1, -(event.clientY - bounds.top) / bounds.height * 2 + 1);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hit = this.raycaster.intersectObjects(this.hitMeshes, false)[0];
+    return hit ? hit.object.userData.mirrorIndex as number : -1;
+  }
+
+  private setHovered(index: number): void {
+    if (this.hovered === index) return;
+    this.hovered = index;
+    this.renderer.domElement.classList.toggle('is-hovering', index >= 0);
+  }
+
+  private moveCamera(position: THREE.Vector3, target: THREE.Vector3, size: number, duration: number): void {
+    this.controls.autoRotate = false;
+    this.renderer.domElement.dataset.cameraMoving = String(duration > 0);
+    if (duration === 0) {
+      this.camera.position.copy(position);
+      this.controls.target.copy(target);
+      this.viewSize = size;
+      this.updateProjection();
+      this.controls.update();
+      this.cameraTween = undefined;
+      this.controls.enabled = true;
+      this.controls.autoRotate = this.screen !== 'level' && !this.reducedMotion;
+      return;
+    }
+    this.cameraTween = {
+      fromPosition: this.camera.position.clone(), toPosition: position,
+      fromTarget: this.controls.target.clone(), toTarget: target,
+      fromSize: this.viewSize, toSize: size, elapsed: 0, duration,
+    };
+    this.controls.enabled = false;
+  }
+
+  private cameraViewSize(desktop: number, mobile: number): number {
+    return this.container.clientWidth / this.container.clientHeight < 0.85 ? mobile : desktop;
+  }
+
+  private resize(): void {
+    const width = this.container.clientWidth;
+    const height = this.container.clientHeight;
+    this.renderer.setSize(width, height);
+    this.composer.setSize(width, height);
+    this.updateProjection();
+  }
+
+  private updateProjection(): void {
+    const aspect = this.container.clientWidth / this.container.clientHeight;
+    this.camera.left = -this.viewSize * aspect / 2;
+    this.camera.right = this.viewSize * aspect / 2;
+    this.camera.top = this.viewSize / 2;
+    this.camera.bottom = -this.viewSize / 2;
+    this.camera.updateProjectionMatrix();
+  }
+
+  private createRain(count: number): { lines: THREE.LineSegments; positions: Float32Array } {
+    const positions = new Float32Array(count * 6);
+    for (let index = 0; index < count; index += 1) {
+      const x = (Math.random() - 0.5) * 36;
+      const y = Math.random() * 19;
+      const z = (Math.random() - 0.5) * 36;
+      positions[index * 6] = x;
+      positions[index * 6 + 1] = y;
+      positions[index * 6 + 2] = z;
+      positions[index * 6 + 3] = x - 0.07;
+      positions[index * 6 + 4] = y - 0.34;
+      positions[index * 6 + 5] = z + 0.025;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+      color: '#9ac8e5', transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    lines.frustumCulled = false;
+    return { lines, positions };
+  }
+
+  private animate(): void {
+    const frameDelta = this.clock.getDelta();
+    const delta = Math.min(frameDelta, 0.05);
+    const elapsed = this.clock.elapsedTime;
+    if (this.cameraTween) {
+      const tween = this.cameraTween;
+      tween.elapsed += frameDelta;
+      const progress = Math.min(tween.elapsed / tween.duration, 1);
+      const eased = progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
+      this.camera.position.lerpVectors(tween.fromPosition, tween.toPosition, eased);
+      this.controls.target.lerpVectors(tween.fromTarget, tween.toTarget, eased);
+      this.viewSize = THREE.MathUtils.lerp(tween.fromSize, tween.toSize, eased);
+      this.updateProjection();
+      if (progress >= 1) {
+        this.cameraTween = undefined;
+        this.controls.enabled = true;
+        this.controls.autoRotate = this.screen !== 'level' && !this.reducedMotion;
+        this.renderer.domElement.dataset.cameraMoving = 'false';
+      }
+    }
+    this.controls.update();
+
+    this.mirrors.forEach((mirror, index) => {
+      mirror.rotor.rotation.y = THREE.MathUtils.damp(mirror.rotor.rotation.y, mirror.targetRotation, 13, delta);
+      const hovered = index === this.hovered && this.interactive;
+      mirror.ring.material.emissiveIntensity = THREE.MathUtils.damp(mirror.ring.material.emissiveIntensity, hovered ? 3.2 : 0.65, 10, delta);
+      mirror.ring.scale.setScalar(THREE.MathUtils.damp(mirror.ring.scale.x, hovered ? 1.16 : 1, 10, delta));
+    });
+    if (this.targetRing) this.targetRing.rotation.z += delta * 0.35;
+
+    for (let index = 0; index < 4; index += 1) {
+      this.lightLevels[index] = THREE.MathUtils.damp(this.lightLevels[index], this.lightTargets[index], 1.65, delta);
+      const level = this.lightLevels[index];
+      const district = this.city.districts[index];
+      district.windowMaterial.emissiveIntensity = 0.015 + Math.max(0, level - 0.08) * 1.45;
+      district.windowMaterial.color.copy(this.darkWindowColor).lerp(this.warmWindowColor, level);
+      district.signMaterial.emissiveIntensity = 0.12 + level * 0.85;
+      district.lampMaterial.emissiveIntensity = 0.025 + Math.max(0, level - 0.35) * 2.8;
+      district.poolMaterial.opacity = Math.max(0, level - 0.25) * 0.4;
+      district.light.intensity = 0.08 + level * 7.5;
+    }
+
+    if (!this.reducedMotion) this.updateRain(delta);
+    const totalLength = this.beamSegments.reduce((sum, segment) => sum + segment.length, 0);
+    this.pulses.forEach((pulse, index) => {
+      if (!totalLength) return;
+      let distance = ((elapsed * 2.8 + Number(pulse.userData.offset) * totalLength) % totalLength);
+      const segment = this.beamSegments.find((item) => {
+        if (distance <= item.length) return true;
+        distance -= item.length;
+        return false;
+      }) ?? this.beamSegments.at(-1)!;
+      pulse.position.copy(segment.start).lerp(segment.end, THREE.MathUtils.clamp(distance / segment.length, 0, 1));
+      pulse.scale.setScalar(0.85 + Math.sin(elapsed * 8 + index) * 0.18);
+    });
+    this.updateBurst(delta);
+    this.composer.render();
+  }
+
+  private updateRain(delta: number): void {
+    for (let index = 0; index < this.rainCount; index += 1) {
+      const offset = index * 6;
+      this.rainPositions[offset + 1] -= delta * 8.5;
+      this.rainPositions[offset + 4] -= delta * 8.5;
+      this.rainPositions[offset] -= delta * 0.5;
+      this.rainPositions[offset + 3] -= delta * 0.5;
+      if (this.rainPositions[offset + 1] < 0) {
+        const y = 15 + Math.random() * 5;
+        this.rainPositions[offset + 1] = y;
+        this.rainPositions[offset + 4] = y - 0.34;
+        this.rainPositions[offset] = (Math.random() - 0.5) * 36;
+        this.rainPositions[offset + 3] = this.rainPositions[offset] - 0.07;
+        this.rainPositions[offset + 2] = (Math.random() - 0.5) * 36;
+        this.rainPositions[offset + 5] = this.rainPositions[offset + 2] + 0.025;
+      }
+    }
+    this.rain.geometry.attributes.position.needsUpdate = true;
+  }
+
+  private updateBurst(delta: number): void {
+    if (!this.burst || this.burstLife <= 0) return;
+    this.burstLife -= delta;
+    const positions = this.burst.geometry.attributes.position as THREE.BufferAttribute;
+    for (let index = 0; index < positions.count; index += 1) {
+      const velocity = this.burstVelocities[index];
+      velocity.y -= delta * 2.2;
+      positions.setXYZ(index, positions.getX(index) + velocity.x * delta, positions.getY(index) + velocity.y * delta, positions.getZ(index) + velocity.z * delta);
+    }
+    positions.needsUpdate = true;
+    (this.burst.material as THREE.PointsMaterial).opacity = Math.min(1, this.burstLife);
+    if (this.burstLife <= 0) this.burst.visible = false;
+  }
+
+  private clearLevel(): void {
+    this.hitMeshes.length = 0;
+    this.mirrors.clear();
+    this.targetMaterial = undefined;
+    this.targetLight = undefined;
+    this.targetRing = undefined;
+    this.levelGroup.traverse((object) => {
+      if (object instanceof THREE.Mesh) object.geometry.dispose();
+      if (object instanceof THREE.Mesh || object instanceof THREE.Sprite) {
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => material.dispose());
+      }
+    });
+    this.levelGroup.clear();
+    this.beamGroup.clear();
+  }
+}
+
+function createGlowTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d')!;
+  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.18, 'rgba(255,255,255,.8)');
+  gradient.addColorStop(0.5, 'rgba(255,255,255,.16)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(canvas);
+}
+
+function createMirrorTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d')!;
+  const gradient = context.createLinearGradient(0, 128, 128, 0);
+  gradient.addColorStop(0, '#4a879d');
+  gradient.addColorStop(0.36, '#d9fbff');
+  gradient.addColorStop(0.5, '#82c8d8');
+  gradient.addColorStop(0.56, '#f2ffff');
+  gradient.addColorStop(1, '#38778f');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 128);
+  context.strokeStyle = 'rgba(255,255,255,.45)';
+  context.lineWidth = 2;
+  for (let line = -128; line < 256; line += 25) {
+    context.beginPath();
+    context.moveTo(line, 128);
+    context.lineTo(line + 128, 0);
+    context.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}

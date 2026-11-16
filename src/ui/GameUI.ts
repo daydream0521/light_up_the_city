@@ -1,0 +1,233 @@
+import { LEVELS, type LevelConfig, type MirrorOrientation } from '../game/levels';
+import type { SaveData } from '../game/storage';
+
+interface UICallbacks {
+  onStart: () => void;
+  onMirror: (index: number) => void;
+  onReset: () => void;
+  onToggleMute: () => void;
+  onNext: () => void;
+  onReplay: () => void;
+  onSelectLevel: (index: number) => void;
+}
+
+const icons = {
+  reset: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .5-7l-2 2"/></svg>',
+  muted: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Zm5 4 5 6m0-6-5 6"/></svg>',
+  sound: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Zm4 4a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>',
+};
+
+export class GameUI {
+  private readonly shell: HTMLElement;
+  private readonly sceneContainer: HTMLElement;
+  private readonly intro: HTMLElement;
+  private readonly hud: HTMLElement;
+  private readonly finale: HTMLElement;
+  private readonly toast: HTMLElement;
+  private readonly mirrorButtons: HTMLElement;
+  private readonly live: HTMLElement;
+  private currentLevel = 0;
+
+  constructor(root: HTMLElement, private readonly callbacks: UICallbacks) {
+    root.innerHTML = `
+      <main class="game-shell" data-screen="intro">
+        <div id="scene-container" class="scene-container" role="img" aria-label="可交互的雨夜微缩城市。点击屋顶镜面改变光路。"></div>
+        <div class="scene-vignette" aria-hidden="true"></div>
+        <div class="rain-glass" aria-hidden="true"></div>
+
+        <header class="game-header">
+          <div class="brand" aria-label="点亮夜城">
+            <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M8 32h24M12 32V19h6v13m4 0V10h8v22"/><path class="brand-beam" d="m5 17 27-11"/><circle cx="33" cy="5" r="2.5"/></svg>
+            <span><strong>点亮夜城</strong><small>Light Up the City</small></span>
+          </div>
+          <nav class="level-progress" aria-label="街区进度"><ol id="level-list"></ol></nav>
+          <div class="header-actions">
+            <button class="icon-button" data-action="reset" aria-label="重置当前关卡" title="重置当前关卡（R）">${icons.reset}<span>重置</span></button>
+            <button class="icon-button" data-action="mute" aria-label="开启声音" aria-pressed="true" title="切换声音（M）">${icons.muted}<span>声音</span></button>
+          </div>
+        </header>
+
+        <section id="intro" class="intro-screen screen-layer">
+          <div class="intro-copy">
+            <p class="intro-overline">雨还没有停，城市仍在等待。</p>
+            <h1><span>点亮</span><span>夜城</span></h1>
+            <p class="intro-description">旋转屋顶的镜面，让唯一的光，<br>抵达每一扇等待亮起的窗。</p>
+            <button class="primary-button" data-action="start"><span id="start-label">开始点亮</span>${icons.arrow}</button>
+            <p id="save-note" class="save-note"></p>
+          </div>
+          <div class="intro-footnote"><span class="tiny-light"></span>一束光，四个街区，一座城。</div>
+        </section>
+
+        <section id="hud" class="game-hud" hidden>
+          <div class="level-copy">
+            <p id="level-number" class="level-number"></p>
+            <h2 id="level-name"></h2>
+            <p id="level-subtitle"></p>
+          </div>
+          <div class="objective"><span class="objective-dot"></span><span>引导光束抵达<span class="objective-strong">金色目标</span></span></div>
+          <div id="play-hint" class="play-hint"><span class="mouse-symbol" aria-hidden="true"></span><span>点击镜面，让光转弯</span></div>
+          <div class="mirror-dock" aria-label="镜面控制">
+            <span class="dock-label">屋顶镜面</span>
+            <div id="mirror-buttons" class="mirror-buttons"></div>
+          </div>
+          <div class="camera-hint">拖动环视 <span>·</span> 滚轮缩放</div>
+        </section>
+
+        <div id="level-toast" class="level-toast" role="status" hidden>
+          <span class="success-orbit" aria-hidden="true"></span>
+          <p class="toast-kicker">街区重新亮起</p>
+          <h2 id="toast-title"></h2>
+          <p id="toast-copy"></p>
+          <button class="primary-button" data-action="next"><span id="next-label">前往下一街区</span>${icons.arrow}</button>
+        </div>
+
+        <section id="finale" class="finale-screen screen-layer" hidden>
+          <div class="finale-copy">
+            <p class="finale-count">4 / 4 街区已点亮</p>
+            <h2>这座城市，因你而亮。</h2>
+            <p>每一束被引导的光，都有抵达的地方。</p>
+            <button class="primary-button" data-action="replay"><span>再玩一次</span>${icons.reset}</button>
+          </div>
+        </section>
+
+        <div id="loading" class="loading-screen"><span class="loading-beam"></span><p>正在唤醒夜城…</p></div>
+        <div id="fatal" class="fatal-screen" hidden><h1>夜城暂时无法苏醒</h1><p id="fatal-message"></p><button class="primary-button" onclick="location.reload()">重新加载</button></div>
+        <div id="live-region" class="sr-only" aria-live="polite"></div>
+      </main>`;
+
+    this.shell = root.querySelector('.game-shell')!;
+    this.sceneContainer = root.querySelector('#scene-container')!;
+    this.intro = root.querySelector('#intro')!;
+    this.hud = root.querySelector('#hud')!;
+    this.finale = root.querySelector('#finale')!;
+    this.toast = root.querySelector('#level-toast')!;
+    this.mirrorButtons = root.querySelector('#mirror-buttons')!;
+    this.live = root.querySelector('#live-region')!;
+
+    root.addEventListener('click', (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-action], button[data-mirror], button[data-level]');
+      if (!button || button.disabled) return;
+      if (button.dataset.mirror !== undefined) this.callbacks.onMirror(Number(button.dataset.mirror));
+      if (button.dataset.level !== undefined) this.callbacks.onSelectLevel(Number(button.dataset.level));
+      switch (button.dataset.action) {
+        case 'start': this.callbacks.onStart(); break;
+        case 'reset': this.callbacks.onReset(); break;
+        case 'mute': this.callbacks.onToggleMute(); break;
+        case 'next': this.callbacks.onNext(); break;
+        case 'replay': this.callbacks.onReplay(); break;
+      }
+    });
+
+    window.addEventListener('keydown', (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key.toLowerCase() === 'r') this.callbacks.onReset();
+      if (event.key.toLowerCase() === 'm') this.callbacks.onToggleMute();
+    });
+  }
+
+  get container(): HTMLElement {
+    return this.sceneContainer;
+  }
+
+  ready(): void {
+    rootQuery('#loading').hidden = true;
+  }
+
+  showIntro(save: SaveData): void {
+    this.shell.dataset.screen = 'intro';
+    this.intro.hidden = false;
+    this.hud.hidden = true;
+    this.finale.hidden = true;
+    this.toast.hidden = true;
+    const continuing = save.completed.length > 0 && save.completed.length < LEVELS.length;
+    rootQuery('#start-label').textContent = continuing ? '继续点亮' : save.completed.length === 4 ? '俯瞰夜城' : '开始点亮';
+    rootQuery('#save-note').textContent = continuing ? `已为你保留 ${save.completed.length} 片街区的灯光` : '';
+    this.renderProgress(save.currentLevel, save.completed, true);
+  }
+
+  showLevel(level: LevelConfig, orientations: readonly MirrorOrientation[], completed: readonly number[]): void {
+    this.currentLevel = level.id;
+    this.shell.dataset.screen = 'playing';
+    this.intro.hidden = true;
+    this.finale.hidden = true;
+    this.toast.hidden = true;
+    this.hud.hidden = false;
+    rootQuery('#level-number').textContent = `第 ${level.id + 1} 关 / 共 4 关`;
+    rootQuery('#level-name').textContent = level.name;
+    rootQuery('#level-subtitle').textContent = level.subtitle;
+    rootQuery('#play-hint').hidden = level.id !== 0;
+    this.mirrorButtons.innerHTML = level.mirrors.map((mirror, index) => `
+      <button class="mirror-button" data-mirror="${index}" aria-label="镜面 ${mirror.id}，当前方向 ${orientations[index]}，点击切换" aria-pressed="${orientations[index] === '/' }">
+        <span class="mirror-id">${mirror.id}</span><span class="mirror-glyph" aria-hidden="true">${orientations[index]}</span>
+      </button>`).join('');
+    this.renderProgress(level.id, completed, false);
+    this.announce(`第 ${level.id + 1} 关，${level.name}。点击镜面，让光束抵达金色目标。`);
+  }
+
+  updateMirrors(orientations: readonly MirrorOrientation[]): void {
+    rootQuery('#play-hint').hidden = true;
+    const level = LEVELS[this.currentLevel];
+    this.mirrorButtons.querySelectorAll<HTMLButtonElement>('[data-mirror]').forEach((button, index) => {
+      const orientation = orientations[index];
+      button.setAttribute('aria-label', `镜面 ${level.mirrors[index].id}，当前方向 ${orientation}，点击切换`);
+      button.setAttribute('aria-pressed', String(orientation === '/'));
+      button.querySelector('.mirror-glyph')!.textContent = orientation;
+      button.classList.remove('just-turned');
+      requestAnimationFrame(() => button.classList.add('just-turned'));
+    });
+  }
+
+  showLevelComplete(level: LevelConfig, isFinal: boolean): void {
+    this.shell.dataset.screen = 'complete';
+    rootQuery('#toast-title').textContent = `${level.name}，亮了`;
+    rootQuery('#toast-copy').textContent = isFinal ? '最后一片夜色退去，看看这座城市吧。' : '窗灯与街灯，会记住这束光。';
+    rootQuery('#next-label').textContent = isFinal ? '俯瞰全城' : '前往下一街区';
+    this.toast.hidden = false;
+    rootQuery<HTMLButtonElement>('[data-action="next"]').focus({ preventScroll: true });
+  }
+
+  hideLevelComplete(): void {
+    this.toast.hidden = true;
+  }
+
+  showFinale(): void {
+    this.shell.dataset.screen = 'finale';
+    this.hud.hidden = true;
+    this.toast.hidden = true;
+    this.intro.hidden = true;
+    this.finale.hidden = false;
+    this.renderProgress(3, [0, 1, 2, 3], false);
+    this.announce('四个街区全部点亮。这座城市，因你而亮。');
+  }
+
+  setMuted(muted: boolean): void {
+    const button = rootQuery<HTMLButtonElement>('[data-action="mute"]');
+    button.innerHTML = `${muted ? icons.muted : icons.sound}<span>${muted ? '声音' : '有声'}</span>`;
+    button.setAttribute('aria-label', muted ? '开启声音' : '关闭声音');
+    button.setAttribute('aria-pressed', String(muted));
+  }
+
+  announce(message: string): void {
+    this.live.textContent = message;
+  }
+
+  fatal(message: string): void {
+    rootQuery('#loading').hidden = true;
+    rootQuery('#fatal').hidden = false;
+    rootQuery('#fatal-message').textContent = message;
+  }
+
+  private renderProgress(current: number, completed: readonly number[], intro: boolean): void {
+    rootQuery('#level-list').innerHTML = LEVELS.map((level, index) => {
+      const isComplete = completed.includes(index);
+      const isCurrent = index === current && !intro;
+      const unlocked = index <= Math.min(completed.length, 3);
+      return `<li><button data-level="${index}" class="progress-step${isComplete ? ' is-complete' : ''}${isCurrent ? ' is-current' : ''}" ${unlocked ? '' : 'disabled'} aria-label="第 ${index + 1} 关 ${level.name}${isComplete ? '，已点亮' : ''}" ${isCurrent ? 'aria-current="step"' : ''}><span>${index + 1}</span><i></i></button></li>`;
+    }).join('');
+  }
+}
+
+function rootQuery<T extends HTMLElement = HTMLElement>(selector: string): T {
+  return document.querySelector<T>(selector)!;
+}
