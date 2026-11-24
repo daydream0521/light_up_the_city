@@ -100,3 +100,16 @@ Playwright 汇总：3 个 spec 全部通过（1.9m）。
 - 进度仅保存在当前浏览器，不提供云存档（PRD 范围外）。
 - 声音由 Web Audio 实时合成，默认静音，需用户主动开启。
 - 移动端已验证基本触摸与分光流程；主要视觉与镜头体验仍以桌面端为目标。
+
+## v2 Phase C 城市视觉升级（feature/v2-art）
+
+范围：仅 `src/scene/cityGeometry.ts` 重写 + 新增 `src/scene/cityBuildings.ts`、`src/scene/cityLife.ts`；`CityScene.ts` 仅 4 行整合钩子；玩法文件零修改。详见 [ART-UPGRADE.md](ART-UPGRADE.md)。
+
+| 项目 | 内容 | 结果 | 证据 |
+| --- | --- | --- | --- |
+| 逻辑回归 | vitest 36 项 | 通过 | `npm test` |
+| 构建 | tsc + vite build | 通过 | gzip 约 158 kB |
+| 功能回归 | desktop / mobile / canvas e2e | 通过 | Playwright 真实 Chrome |
+| 美术审查 | 固定视角截图两轮迭代 | 通过 | `screenshots/art-01…art-08` |
+
+截图审查第一轮发现并修正：商业楼冠部光带俯视成青色屋顶、工业/市政窗密度不足致终局复苏偏弱、终局光柱与水面光带不可见、网格内广告牌逼近光束高度。第二轮截图确认修正生效。

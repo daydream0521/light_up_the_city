@@ -8,6 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { DISTRICT_CENTERS, LEVELS, OPTICS_HEIGHT, type LevelConfig, type MirrorOrientation, type TargetConfig } from '../game/levels';
 import type { TraceResult } from '../game/optics';
 import { createCity, gridToWorld, type CityVisual } from './cityGeometry';
+import { createCityLife, type CityLife } from './cityLife';
 
 interface MirrorVisual {
   rotor: THREE.Group;
@@ -57,6 +58,7 @@ export class CityScene {
   private readonly controls: OrbitControls;
   private readonly composer: EffectComposer;
   private readonly city: CityVisual;
+  private readonly cityLife: CityLife;
   private readonly clock = new THREE.Clock();
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
@@ -149,6 +151,7 @@ export class CityScene {
     this.scene.add(rim);
 
     this.city = createCity();
+    this.cityLife = createCityLife(this.city, this.reducedMotion);
     this.scene.add(this.city.group);
     this.scene.add(this.levelGroup, this.beamGroup);
 
@@ -647,6 +650,7 @@ export class CityScene {
       district.poolMaterial.opacity = Math.max(0, level - 0.25) * 0.4;
       district.light.intensity = 0.08 + level * 7.5;
     }
+    this.cityLife.update(elapsed, delta, this.lightLevels);
 
     if (!this.reducedMotion) this.updateRain(delta);
     this.pulses.forEach((pulse, index) => {

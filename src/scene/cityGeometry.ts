@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { DISTRICT_CENTERS, GRID_SIZE, LEVELS, type GridPoint, type LevelConfig } from '../game/levels';
+import {
+  buildApartment, buildChimney, buildCivic, buildClockTower, buildCommercial, buildDomeHall, buildFence,
+  buildFountain, buildGarden, buildQuaySign, buildSpireTower, buildStorageTanks, buildTree, buildWarehouse,
+  buildWaterTower, createGlowTexture, windowGeometry, type BuildContext, type WindowSeed,
+} from './cityBuildings';
 
 export interface DistrictVisual {
   group: THREE.Group;
@@ -11,18 +16,23 @@ export interface DistrictVisual {
   light: THREE.PointLight;
 }
 
+export interface DistrictLifeSeed {
+  windows: WindowSeed[];
+  silhouettes: THREE.Matrix4[];
+  center: THREE.Vector3;
+}
+
 export interface CityVisual {
   group: THREE.Group;
   districts: DistrictVisual[];
+  life: DistrictLifeSeed[];
+  beacons: THREE.Mesh[];
+  canalLampMaterials: THREE.MeshStandardMaterial[];
 }
 
 const bodyColors = ['#243b54', '#294259', '#30485e', '#20364e', '#354b60'];
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
-const windowGeometry = new THREE.BoxGeometry(0.18, 0.23, 0.025);
-const matrix = new THREE.Matrix4();
-const quaternion = new THREE.Quaternion();
-const scale = new THREE.Vector3(1, 1, 1);
-const yAxis = new THREE.Vector3(0, 1, 0);
+const postGeometry = new THREE.BoxGeometry(0.035, 0.34, 0.035);
 
 function seededRandom(seed: number): () => number {
   let value = seed >>> 0;
@@ -51,8 +61,15 @@ export function createCity(): CityVisual {
   const roofMaterial = new THREE.MeshStandardMaterial({ color: '#263e53', roughness: 0.4, metalness: 0.55 });
   const darkMetal = new THREE.MeshStandardMaterial({ color: '#0c1b2a', roughness: 0.3, metalness: 0.72 });
   const pavement = new THREE.MeshStandardMaterial({ color: '#101e2e', roughness: 0.42, metalness: 0.22 });
+  const concrete = new THREE.MeshStandardMaterial({ color: '#16283a', roughness: 0.62, metalness: 0.18 });
+  const warningMaterial = new THREE.MeshStandardMaterial({ color: '#8f4a2c', emissive: '#c2682f', emissiveIntensity: 0.3, roughness: 0.45 });
+  const foliageMaterial = new THREE.MeshStandardMaterial({ color: '#1c3527', roughness: 0.82, metalness: 0.05 });
+  const timberMaterial = new THREE.MeshStandardMaterial({ color: '#33291f', roughness: 0.72, metalness: 0.08 });
   const roadMaterial = new THREE.MeshPhysicalMaterial({
     color: '#081521', roughness: 0.2, metalness: 0.46, clearcoat: 0.9, clearcoatRoughness: 0.18,
+  });
+  const waterMaterial = new THREE.MeshPhysicalMaterial({
+    color: '#0a1e30', roughness: 0.1, metalness: 0.55, clearcoat: 1, clearcoatRoughness: 0.22,
   });
 
   const plinth = new THREE.Mesh(new RoundedBoxGeometry(23.2, 0.7, 23.2, 4, 0.35), new THREE.MeshStandardMaterial({
@@ -76,16 +93,23 @@ export function createCity(): CityVisual {
 
   const laneMaterial = new THREE.MeshBasicMaterial({ color: '#426079', transparent: true, opacity: 0.26 });
   for (let i = -9; i <= 9; i += 2) {
-    const dashA = new THREE.Mesh(new THREE.PlaneGeometry(0.045, 0.7), laneMaterial);
-    dashA.rotation.x = -Math.PI / 2;
-    dashA.position.set(0, 0.055, i);
-    group.add(dashA);
-    const dashB = dashA.clone();
-    dashB.rotation.z = Math.PI / 2;
-    dashB.position.set(i, 0.056, 0);
-    group.add(dashB);
+    if (Math.abs(i) < 2) continue;
+    const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.045), laneMaterial);
+    dash.rotation.x = -Math.PI / 2;
+    dash.position.set(i, 0.056, 0);
+    group.add(dash);
   }
 
+  const canalLampMaterial = new THREE.MeshStandardMaterial({
+    color: '#425268', emissive: '#ffd18c', emissiveIntensity: 0.03, roughness: 0.25,
+  });
+  addCanal(group, waterMaterial, concrete, darkMetal, timberMaterial, canalLampMaterial);
+  addBridge(group, darkMetal, roofMaterial, canalLampMaterial);
+  addSkyline(group);
+
+  const canalLampMaterials: THREE.MeshStandardMaterial[] = [canalLampMaterial];
+  const beacons: THREE.Mesh[] = [];
+  const life: DistrictLifeSeed[] = [];
   const districts = DISTRICT_CENTERS.map((center, index) => {
     const levelsHere = LEVELS.filter((level) => level.district === index);
     const occupied = new Set<string>();
@@ -98,33 +122,43 @@ export function createCity(): CityVisual {
       level.targets.forEach((target) => occupied.add(target.at.join(',')));
       occupied.add(level.source.join(','));
     }
-    return createDistrict(center, index, occupied, size, bodyMaterials, roofMaterial, darkMetal, pavement);
+    const built = createDistrict(center, index, occupied, size, bodyMaterials, roofMaterial, darkMetal, pavement, warningMaterial, foliageMaterial);
+    beacons.push(...built.beacons);
+    life.push(built.seed);
+    return built.visual;
   });
   districts.forEach((district) => group.add(district.group));
-  addBridge(group, darkMetal, roofMaterial);
   addStreetFurniture(group, darkMetal);
   addPuddles(group);
-  return { group, districts };
+  return { group, districts, life, beacons, canalLampMaterials };
 }
+
+type Theme = 'residential' | 'commercial' | 'industrial' | 'civic';
+const THEMES: readonly Theme[] = ['residential', 'commercial', 'industrial', 'civic'];
+const SIGN_COLORS = ['#ff9c78', '#42c7df', '#7fa6c4', '#ffbd67'];
+const SIGN_COUNTS = [3, 6, 2, 4];
 
 function createDistrict(
   centerPoint: GridPoint,
   index: number,
   occupied: Set<string>,
   size: number,
-  bodyMaterials: THREE.MeshStandardMaterial[],
+  bodies: THREE.MeshStandardMaterial[],
   roofMaterial: THREE.MeshStandardMaterial,
   darkMetal: THREE.MeshStandardMaterial,
   pavement: THREE.MeshStandardMaterial,
-): DistrictVisual {
+  warning: THREE.MeshStandardMaterial,
+  foliage: THREE.MeshStandardMaterial,
+): { visual: DistrictVisual; seed: DistrictLifeSeed; beacons: THREE.Mesh[] } {
   const random = seededRandom(8731 + index * 971);
+  const theme = THEMES[index];
   const group = new THREE.Group();
-  group.name = `District ${index + 1}`;
+  group.name = `District ${index + 1} · ${theme}`;
   const windowMaterial = new THREE.MeshStandardMaterial({
     color: '#294056', emissive: '#ffbd67', emissiveIntensity: 0.015, roughness: 0.45, metalness: 0.05,
   });
   const signMaterial = new THREE.MeshStandardMaterial({
-    color: '#244252', emissive: index % 2 ? '#42c7df' : '#ff9c78', emissiveIntensity: 0.12, roughness: 0.32,
+    color: '#244252', emissive: SIGN_COLORS[index], emissiveIntensity: 0.12, roughness: 0.32,
   });
   const lampMaterial = new THREE.MeshStandardMaterial({
     color: '#425268', emissive: '#ffd18c', emissiveIntensity: 0.025, roughness: 0.25,
@@ -143,38 +177,95 @@ function createDistrict(
   plaza.receiveShadow = true;
   group.add(plaza);
 
-  const windows: THREE.Matrix4[] = [];
+  const windows: WindowSeed[] = [];
+  const silhouettes: THREE.Matrix4[] = [];
+  const beacons: THREE.Mesh[] = [];
+  const ctx: BuildContext = { group, windows, silhouettes, beacons, random, bodies, roof: roofMaterial, metal: darkMetal, sign: signMaterial, warning, foliage };
   const toWorld = ([x, z]: GridPoint) => new THREE.Vector3(centerPoint[0] + (x - 3) * GRID_SIZE, 0, centerPoint[1] + (z - 3) * GRID_SIZE);
+  const outerDirection = index === 0 ? [-1, -1] : index === 1 ? [1, -1] : index === 2 ? [-1, 1] : [1, 1];
+  const quayFacing = (index === 1 || index === 3) ? -Math.PI / 2 : Math.PI / 2;
+  let fountainPlaced = false;
+  let domePlaced = false;
 
   for (let x = 0; x < size; x += 1) {
     for (let z = 0; z < size; z += 1) {
-      if (occupied.has(`${x},${z}`) || random() < 0.2) continue;
+      if (occupied.has(`${x},${z}`)) continue;
       const position = toWorld([x, z]);
-      const width = 0.72 + random() * 0.2;
-      const depth = 0.72 + random() * 0.2;
-      const height = 0.72 + random() * 1.05;
-      addBuilding(group, windows, position, width, depth, height, bodyMaterials[Math.floor(random() * bodyMaterials.length)], roofMaterial, darkMetal, random);
+      const riverside = (index === 0 || index === 2) ? x === size - 1 : x === 0;
+      const roll = random();
+      if (riverside) {
+        placeRiverside(ctx, theme, position, roll, quayFacing, random);
+        continue;
+      }
+      switch (theme) {
+        case 'residential':
+          if (roll < 0.1) buildGarden(ctx, position);
+          else if (roll < 0.15) buildFence(ctx, position, random() < 0.5 ? 'x' : 'z');
+          else if (roll < 0.21) buildTree(ctx, position);
+          else if (roll < 0.26) continue;
+          else buildApartment(ctx, position, 0.66 + random() * 0.24, 0.66 + random() * 0.2, 0.65 + random() * 0.9);
+          break;
+        case 'commercial':
+          if (roll < 0.2) continue;
+          else if (roll < 0.25) buildTree(ctx, position);
+          else buildCommercial(ctx, position, 0.68 + random() * 0.26, 0.68 + random() * 0.22, 0.85 + random() * 1.1);
+          break;
+        case 'industrial':
+          if (roll < 0.14) continue;
+          else if (roll < 0.24) buildFence(ctx, position, random() < 0.5 ? 'x' : 'z');
+          else if (roll < 0.33) buildStorageTanks(ctx, position);
+          else buildWarehouse(ctx, position, 0.8 + random() * 0.16, 0.74 + random() * 0.2, 0.45 + random() * 0.4);
+          break;
+        case 'civic':
+          if (!domePlaced && roll < 0.06) { domePlaced = true; buildDomeHall(ctx, position); }
+          else if (roll < 0.12) continue;
+          else if (roll < 0.24) buildTree(ctx, position);
+          else if (roll < 0.3) buildGarden(ctx, position);
+          else if (!fountainPlaced && roll < 0.35) { fountainPlaced = true; buildFountain(ctx, position); }
+          else if (roll < 0.6) buildCivic(ctx, position, 0.84 + random() * 0.2, 0.8 + random() * 0.16, 0.5 + random() * 0.35);
+          else buildApartment(ctx, position, 0.66 + random() * 0.2, 0.66 + random() * 0.18, 0.6 + random() * 0.6);
+          break;
+      }
     }
   }
 
-  const outerDirection = index === 0 ? [-1, -1] : index === 1 ? [1, -1] : index === 2 ? [-1, 1] : [1, 1];
-  for (let tower = 0; tower < 5; tower += 1) {
-    const along = (tower - 2) * 1.5;
+  for (let slot = 0; slot < 5; slot += 1) {
+    const along = (slot - 2) * 1.6;
     const position = center.clone();
-    if (tower % 2 === 0) {
+    if (slot % 2 === 0) {
       position.x += along;
       position.z += outerDirection[1] * 4.7;
     } else {
       position.x += outerDirection[0] * 4.7;
       position.z += along;
     }
-    const height = 2.3 + random() * 2.7;
-    addBuilding(group, windows, position, 1.05 + random() * 0.35, 1.05 + random() * 0.35, height, bodyMaterials[Math.floor(random() * bodyMaterials.length)], roofMaterial, darkMetal, random);
-    if (tower % 2 === 0) addRoofAntenna(group, position, height, darkMetal, signMaterial);
+    switch (theme) {
+      case 'residential': {
+        const height = 2.2 + random() * 1.1;
+        buildApartment(ctx, position, 1.05 + random() * 0.3, 1.05 + random() * 0.28, height);
+        if (random() < 0.55) addAntenna(ctx, position, height + 0.5);
+        break;
+      }
+      case 'commercial':
+        if (slot === 2) buildSpireTower(ctx, position, 4.9 + random() * 0.9);
+        else buildCommercial(ctx, position, 1.0 + random() * 0.35, 1.0 + random() * 0.3, 2.5 + random() * 2.0);
+        break;
+      case 'industrial':
+        if (slot % 2 === 0) buildWaterTower(ctx, position);
+        else buildChimney(ctx, position, 2.5 + random() * 1.7);
+        break;
+      case 'civic':
+        if (slot === 1) buildClockTower(ctx, position, 3.7 + random() * 0.7);
+        else if (slot % 2 === 0) buildCivic(ctx, position, 1.5 + random() * 0.4, 1.1 + random() * 0.3, 0.7 + random() * 0.4);
+        else if (slot === 3) buildTree(ctx, position);
+        else buildWarehouse(ctx, position, 1.2, 1.0, 0.6 + random() * 0.25);
+        break;
+    }
   }
 
-  const windowInstances = new THREE.InstancedMesh(windowGeometry, windowMaterial, windows.length);
-  windows.forEach((item, instance) => windowInstances.setMatrixAt(instance, item));
+  const windowInstances = new THREE.InstancedMesh(windowGeometry, windowMaterial, Math.max(1, windows.length));
+  windows.forEach((item, instance) => windowInstances.setMatrixAt(instance, item.matrix));
+  if (!windows.length) windowInstances.setMatrixAt(0, new THREE.Matrix4().makeScale(0, 0, 0));
   windowInstances.instanceMatrix.needsUpdate = true;
   windowInstances.frustumCulled = false;
   group.add(windowInstances);
@@ -189,81 +280,64 @@ function createDistrict(
     group.add(pool);
   }
 
-  for (let sign = 0; sign < 4; sign += 1) {
-    const position = center.clone().add(new THREE.Vector3((sign - 1.5) * 1.7, 0.5 + random(), outerDirection[1] * 3.8));
-    const panel = new THREE.Mesh(new RoundedBoxGeometry(0.7, 0.22, 0.04, 2, 0.03), signMaterial);
+  const signCount = SIGN_COUNTS[index];
+  for (let sign = 0; sign < signCount; sign += 1) {
+    const spread = theme === 'commercial' ? 1.25 : 1.7;
+    const heightScale = theme === 'commercial' ? 1.5 : 1;
+    const position = center.clone().add(new THREE.Vector3((sign - (signCount - 1) / 2) * spread, 0.5 + random(), outerDirection[1] * 3.8));
+    const panel = new THREE.Mesh(new RoundedBoxGeometry(0.7 * heightScale, 0.22 * heightScale, 0.04, 2, 0.03), signMaterial);
     panel.position.copy(position);
     panel.rotation.y = outerDirection[1] > 0 ? 0 : Math.PI;
     group.add(panel);
   }
 
-  return { group, windowMaterial, signMaterial, lampMaterial, poolMaterial, light };
+  return {
+    visual: { group, windowMaterial, signMaterial, lampMaterial, poolMaterial, light },
+    seed: { windows, silhouettes, center: center.clone() },
+    beacons,
+  };
 }
 
-function addBuilding(
-  group: THREE.Group,
-  windows: THREE.Matrix4[],
+function placeRiverside(
+  ctx: BuildContext,
+  theme: Theme,
   position: THREE.Vector3,
-  width: number,
-  depth: number,
-  height: number,
-  bodyMaterial: THREE.MeshStandardMaterial,
-  roofMaterial: THREE.MeshStandardMaterial,
-  darkMetal: THREE.MeshStandardMaterial,
+  roll: number,
+  quayFacing: number,
   random: () => number,
 ): void {
-  const body = new THREE.Mesh(unitBox, bodyMaterial);
-  body.scale.set(width, height, depth);
-  body.position.copy(position).setY(height / 2 + 0.15);
-  body.castShadow = height > 1.5;
-  body.receiveShadow = true;
-  group.add(body);
-
-  const rim = new THREE.Mesh(unitBox, roofMaterial);
-  rim.scale.set(width + 0.09, 0.08, depth + 0.09);
-  rim.position.copy(position).setY(height + 0.18);
-  group.add(rim);
-
-  if (height > 1.45 && random() > 0.42) {
-    const upper = new THREE.Mesh(unitBox, bodyMaterial);
-    upper.scale.set(width * 0.62, 0.22, depth * 0.62);
-    upper.position.copy(position).setY(height + 0.32);
-    group.add(upper);
-  } else if (random() > 0.5) {
-    const unit = new THREE.Mesh(unitBox, darkMetal);
-    unit.scale.set(0.28, 0.15, 0.25);
-    unit.position.copy(position).add(new THREE.Vector3(0.12, height + 0.3, -0.08));
-    group.add(unit);
-    const vent = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.025, 12), roofMaterial);
-    vent.position.copy(unit.position).setY(unit.position.y + 0.09);
-    group.add(vent);
-  }
-
-  const floors = Math.max(1, Math.floor(height / 0.38));
-  for (let floor = 0; floor < floors; floor += 1) {
-    const y = 0.38 + floor * 0.37;
-    for (let column = 0; column < 2; column += 1) {
-      if (random() < 0.18) continue;
-      const offset = (column - 0.5) * width * 0.42;
-      for (const side of [-1, 1]) {
-        quaternion.setFromAxisAngle(yAxis, side > 0 ? 0 : Math.PI);
-        matrix.compose(new THREE.Vector3(position.x + offset, y, position.z + side * (depth / 2 + 0.014)), quaternion, scale);
-        windows.push(matrix.clone());
-        quaternion.setFromAxisAngle(yAxis, side > 0 ? Math.PI / 2 : -Math.PI / 2);
-        matrix.compose(new THREE.Vector3(position.x + side * (width / 2 + 0.014), y, position.z + offset * depth / width), quaternion, scale);
-        windows.push(matrix.clone());
-      }
-    }
+  switch (theme) {
+    case 'residential':
+      if (roll < 0.4) return;
+      if (roll < 0.68) buildTree(ctx, position);
+      else buildApartment(ctx, position, 0.64 + random() * 0.18, 0.64 + random() * 0.16, 0.6 + random() * 0.4);
+      break;
+    case 'commercial':
+      if (roll < 0.32) return;
+      if (roll < 0.66) buildQuaySign(ctx, position, quayFacing);
+      else buildCommercial(ctx, position, 0.66 + random() * 0.2, 0.66 + random() * 0.18, 0.75 + random() * 0.35);
+      break;
+    case 'industrial':
+      if (roll < 0.36) return;
+      if (roll < 0.6) buildFence(ctx, position, 'z');
+      else buildWarehouse(ctx, position, 0.8 + random() * 0.14, 0.72 + random() * 0.16, 0.42 + random() * 0.34);
+      break;
+    case 'civic':
+      if (roll < 0.42) return;
+      if (roll < 0.8) buildTree(ctx, position);
+      else buildCivic(ctx, position, 0.8, 0.75, 0.5 + random() * 0.2);
+      break;
   }
 }
 
-function addRoofAntenna(group: THREE.Group, position: THREE.Vector3, height: number, metal: THREE.Material, glow: THREE.Material): void {
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.8, 8), metal);
-  mast.position.copy(position).setY(height + 0.62);
-  group.add(mast);
-  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), glow);
-  beacon.position.copy(position).setY(height + 1.04);
-  group.add(beacon);
+function addAntenna(ctx: BuildContext, position: THREE.Vector3, topY: number): void {
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.032, 0.7, 8), ctx.metal);
+  mast.position.copy(position).setY(topY + 0.35);
+  ctx.group.add(mast);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), new THREE.MeshBasicMaterial({ color: '#ff8c5c', toneMapped: false }));
+  beacon.position.copy(position).setY(topY + 0.74);
+  ctx.group.add(beacon);
+  ctx.beacons.push(beacon);
 }
 
 function addLamp(group: THREE.Group, position: THREE.Vector3, metal: THREE.Material, glow: THREE.Material): void {
@@ -278,11 +352,95 @@ function addLamp(group: THREE.Group, position: THREE.Vector3, metal: THREE.Mater
   group.add(roof);
 }
 
-function addBridge(group: THREE.Group, metal: THREE.Material, pavement: THREE.Material): void {
+function addCanal(
+  group: THREE.Group,
+  waterMaterial: THREE.Material,
+  concrete: THREE.Material,
+  metal: THREE.Material,
+  timber: THREE.Material,
+  lampMaterial: THREE.Material,
+): void {
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(1.44, 21.4), waterMaterial);
+  water.rotation.x = -Math.PI / 2;
+  water.position.y = 0.05;
+  water.receiveShadow = true;
+  group.add(water);
+
+  for (const side of [-1, 1]) {
+    const quay = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 21.4), concrete);
+    quay.position.set(side * 0.82, 0.08, 0);
+    quay.receiveShadow = true;
+    group.add(quay);
+  }
+
+  const railSegments: [number, number, number][] = [
+    [-10.6, -2.3, -1], [-10.6, -2.3, 1], [2.3, 10.6, -1], [2.3, 5.25, 1], [6.55, 10.6, 1],
+  ];
+  for (const [from, to, side] of railSegments) {
+    const length = to - from;
+    const midZ = (from + to) / 2;
+    for (const y of [0.3, 0.42]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.028, length), metal);
+      rail.position.set(side * 0.9, y, midZ);
+      group.add(rail);
+    }
+    const posts = Math.max(2, Math.round(length / 0.85));
+    const instanced = new THREE.InstancedMesh(postGeometry, metal, posts);
+    const matrix = new THREE.Matrix4();
+    for (let post = 0; post < posts; post += 1) {
+      matrix.setPosition(side * 0.9, 0.33, from + (length * post) / (posts - 1));
+      instanced.setMatrixAt(post, matrix);
+    }
+    instanced.instanceMatrix.needsUpdate = true;
+    group.add(instanced);
+  }
+
+  const pierDeck = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.07, 0.72), timber);
+  pierDeck.position.set(0.25, 0.21, 5.9);
+  pierDeck.castShadow = true;
+  pierDeck.receiveShadow = true;
+  group.add(pierDeck);
+  for (const [dx, dz] of [[-0.72, -0.28], [-0.72, 0.28], [0.72, -0.28], [0.72, 0.28]]) {
+    const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.4, 8), timber);
+    pile.position.set(0.25 + dx, 0.05, 5.9 + dz);
+    group.add(pile);
+  }
+  const bollard = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.24, 8), metal);
+  bollard.position.set(-0.42, 0.36, 5.62);
+  group.add(bollard);
+  const crate = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.26), timber);
+  crate.position.set(0.5, 0.35, 6.08);
+  crate.rotation.y = 0.4;
+  crate.castShadow = true;
+  group.add(crate);
+
+  for (const [x, z] of [[-0.98, -3.4], [0.98, -3.4], [-0.98, 3.4], [0.98, 8.4], [-0.5, 5.62]] as const) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.032, 0.62, 8), metal);
+    pole.position.set(x, 0.47, z);
+    group.add(pole);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), lampMaterial);
+    cap.position.set(x, 0.82, z);
+    group.add(cap);
+  }
+}
+
+function addBridge(group: THREE.Group, metal: THREE.Material, pavement: THREE.Material, lampMaterial: THREE.Material): void {
   const deck = new THREE.Mesh(new RoundedBoxGeometry(3.2, 0.18, 1.25, 2, 0.08), pavement);
   deck.position.set(0, 0.42, 0);
   deck.castShadow = true;
   group.add(deck);
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.055, 8, 20, Math.PI), metal);
+  arch.position.set(0, 0.05, 0);
+  arch.scale.set(1, 0.38, 0.9);
+  group.add(arch);
+  for (const x of [-1.42, 1.42]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.42, 8), metal);
+    pole.position.set(x, 0.72, 0);
+    group.add(pole);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), lampMaterial);
+    cap.position.set(x, 0.97, 0);
+    group.add(cap);
+  }
   for (const z of [-0.58, 0.58]) {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.045, 0.045), metal);
     rail.position.set(0, 0.9, z);
@@ -295,15 +453,44 @@ function addBridge(group: THREE.Group, metal: THREE.Material, pavement: THREE.Ma
   }
 }
 
+function addSkyline(group: THREE.Group): void {
+  const random = seededRandom(7717);
+  const material = new THREE.MeshStandardMaterial({ color: '#0d1e30', roughness: 0.5, metalness: 0.35 });
+  const antennaMaterial = new THREE.MeshStandardMaterial({ color: '#0a1624', roughness: 0.4, metalness: 0.6 });
+  for (const edge of [0, 1, 2, 3]) {
+    let t = -10.3;
+    while (t <= 10.3) {
+      const width = 0.7 + random() * 0.65;
+      const step = width + 0.25 + random() * 0.6;
+      if (Math.abs(t) > 1.5) {
+        const height = 0.6 + random() * 2.1;
+        const block = new THREE.Mesh(unitBox, material);
+        block.scale.set(width, height, 0.7 + random() * 0.5);
+        if (edge === 0) block.position.set(t, height / 2, -10.55);
+        else if (edge === 1) block.position.set(t, height / 2, 10.55);
+        else if (edge === 2) block.position.set(-10.55, height / 2, t);
+        else block.position.set(10.55, height / 2, t);
+        if (edge >= 2) block.rotation.y = Math.PI / 2;
+        group.add(block);
+        if (height > 2.0 && random() < 0.5) {
+          const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.025, 0.5, 6), antennaMaterial);
+          mast.position.copy(block.position).setY(height + 0.25);
+          group.add(mast);
+        }
+      }
+      t += step;
+    }
+  }
+}
+
 function addStreetFurniture(group: THREE.Group, metal: THREE.Material): void {
   const crosswalkMaterial = new THREE.MeshBasicMaterial({ color: '#7890a3', transparent: true, opacity: 0.18 });
-  for (const crossing of [[0, -2.1], [0, 2.1], [-2.1, 0], [2.1, 0]] as const) {
+  for (const crossing of [[-2.1, 0], [2.1, 0]] as const) {
     for (let stripe = -2; stripe <= 2; stripe += 1) {
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.72), crosswalkMaterial);
       mesh.rotation.x = -Math.PI / 2;
-      const horizontal = crossing[0] !== 0;
-      mesh.rotation.z = horizontal ? Math.PI / 2 : 0;
-      mesh.position.set(crossing[0] + (horizontal ? 0 : stripe * 0.3), 0.06, crossing[1] + (horizontal ? stripe * 0.3 : 0));
+      mesh.rotation.z = Math.PI / 2;
+      mesh.position.set(crossing[0], 0.06, crossing[1] + stripe * 0.3);
       group.add(mesh);
     }
   }
@@ -320,27 +507,16 @@ function addPuddles(group: THREE.Group): void {
     color: '#17344d', transparent: true, opacity: 0.42, roughness: 0.08, metalness: 0.5,
     clearcoat: 1, depthWrite: false,
   });
-  for (let i = 0; i < 28; i += 1) {
+  for (let i = 0; i < 26; i += 1) {
     const puddle = new THREE.Mesh(new THREE.CircleGeometry(0.25 + random() * 0.55, 18), material);
     puddle.scale.x = 0.4 + random() * 1.3;
     puddle.rotation.x = -Math.PI / 2;
     puddle.rotation.z = random() * Math.PI;
-    const onVerticalRoad = random() > 0.5;
-    puddle.position.set(onVerticalRoad ? (random() - 0.5) * 1.7 : (random() - 0.5) * 20, 0.065, onVerticalRoad ? (random() - 0.5) * 20 : (random() - 0.5) * 1.7);
+    const alongRoad = random() > 0.35;
+    const x = alongRoad ? (random() - 0.5) * 20 : (random() - 0.5) * 18;
+    const z = alongRoad ? (random() - 0.5) * 1.5 : (random() - 0.5) * 18;
+    if (Math.abs(x) < 1.1) continue;
+    puddle.position.set(x, 0.065, z);
     group.add(puddle);
   }
-}
-
-function createGlowTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const context = canvas.getContext('2d')!;
-  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gradient.addColorStop(0, 'rgba(255,255,255,.8)');
-  gradient.addColorStop(0.25, 'rgba(255,255,255,.25)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(canvas);
 }
