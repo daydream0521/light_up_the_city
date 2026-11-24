@@ -5,8 +5,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { DISTRICT_CENTERS, LEVELS, OPTICS_HEIGHT, type LevelConfig, type MirrorOrientation, type TargetConfig } from '../game/levels';
+import { DISTRICT_CENTERS, GRID_SIZE, LEVELS, OPTICS_HEIGHT, type GridPoint, type LevelConfig, type MirrorOrientation, type PieceKind, type TargetConfig } from '../game/levels';
 import type { TraceResult } from '../game/optics';
+import type { ReflectionGameState, ReflectionTrace } from '../game/reflection';
 import { createCity, gridToWorld, type CityVisual } from './cityGeometry';
 
 interface MirrorVisual {
@@ -49,6 +50,11 @@ const GOLD = '#ffcf82';
 const MINT = '#8affc1';
 const BRANCH_COLORS = [CYAN, MINT, '#b39dff', '#ffd18a'];
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+// 引擎方向 0=E 1=S 2=W 3=N；喷口默认朝 +Z（南）。
+const SOURCE_ROT_Y = [Math.PI / 2, 0, -Math.PI / 2, Math.PI];
+const KIND_LABELS: Record<PieceKind, string> = { mirror: '镜面', splitter: '分光镜', single: '背灯镜', checkpoint: '闸门' };
+// 拾取/投影共用的平面高度：介于屋脊(≈1.74)与镜面面板(2.25)之间，斜视角下点选偏差最小。
+const PICK_HEIGHT = 1.95;
 
 export class CityScene {
   private readonly renderer: THREE.WebGLRenderer;
@@ -65,6 +71,8 @@ export class CityScene {
   private readonly targets = new Map<string, TargetVisual>();
   private readonly beamGroup = new THREE.Group();
   private readonly levelGroup = new THREE.Group();
+  private readonly pieceGroup = new THREE.Group();
+  private readonly zoneGroup = new THREE.Group();
   private readonly beamRuns: BeamRun[] = [];
   private readonly pulses: THREE.Mesh[] = [];
   private readonly lightLevels = [0, 0, 0, 0];
@@ -86,6 +94,9 @@ export class CityScene {
     };
   });
   private level: LevelConfig = LEVELS[0];
+  private groundPlane?: THREE.Mesh;
+  private sourceNozzle?: THREE.Group;
+  private lastTrace?: TraceResult;
   private burst?: THREE.Points;
   private burstVelocities: THREE.Vector3[] = [];
   private burstLife = 0;
@@ -98,7 +109,7 @@ export class CityScene {
   private interactive = false;
   private screen: 'intro' | 'level' | 'finale' = 'intro';
 
-  constructor(private readonly container: HTMLElement, private readonly onMirror: (index: number) => void) {
+  constructor(private readonly container: HTMLElement, private readonly onCell: (at: GridPoint) => void) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.65));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
@@ -150,7 +161,7 @@ export class CityScene {
 
     this.city = createCity();
     this.scene.add(this.city.group);
-    this.scene.add(this.levelGroup, this.beamGroup);
+    this.scene.add(this.levelGroup, this.beamGroup, this.pieceGroup, this.zoneGroup);
 
     this.rainCount = window.innerWidth < 800 ? 280 : 560;
     const rain = this.createRain(this.rainCount);
@@ -181,15 +192,22 @@ export class CityScene {
     this.moveCamera(new THREE.Vector3(18, 21, 25), new THREE.Vector3(0, 0.6, 0), this.cameraViewSize(29, 39), immediate ? 0 : 1.8);
   }
 
-  setLevel(index: number, orientations: readonly MirrorOrientation[], trace: TraceResult, immediate = false): void {
+  setLevel(index: number, orientations: readonly MirrorOrientation[], trace: TraceResult, immediate = false, reflectionState: ReflectionGameState | null = null): void {
     this.level = LEVELS[index];
     this.screen = 'level';
     this.interactive = true;
     this.controls.autoRotate = false;
     this.clearLevel();
     this.createLevelObjects(orientations);
-    this.setBeam(trace);
-    const center = new THREE.Vector3(this.level.districtCenter[0], 0.75, this.level.districtCenter[1]);
+    if (this.level.reflection && reflectionState) {
+      this.setReflection(reflectionState, trace as ReflectionTrace);
+    } else {
+      this.setBeam(trace);
+    }
+    this.setToolZones([]);
+    // gridToWorld 以 7 格棋盘为基准居中（x-3）；非 7 格关卡需把镜头对准实际棋盘中心。
+    const boardOffset = ((this.level.size - 1) / 2 - 3) * GRID_SIZE;
+    const center = new THREE.Vector3(this.level.districtCenter[0] + boardOffset, 0.75, this.level.districtCenter[1] + boardOffset);
     this.moveCamera(center.clone().add(new THREE.Vector3(9.6, 12.2, 13.4)), center, this.cameraViewSize(13.6, 17.2), immediate ? 0 : 1.55);
   }
 
@@ -198,7 +216,149 @@ export class CityScene {
     if (mirror) mirror.targetRotation = orientation === '/' ? Math.PI / 4 : -Math.PI / 4;
   }
 
+  setReflection(state: ReflectionGameState, trace: ReflectionTrace): void {
+    this.lastTrace = trace;
+    this.disposeGroup(this.pieceGroup);
+    const reflection = this.level.reflection!;
+    reflection.pieces.forEach((piece, index) => {
+      const lit = piece.kind === 'single' && trace.targets.some((target) => target.id === piece.id && target.powered);
+      const active = piece.kind === 'checkpoint' && trace.checkpoints.some((checkpoint) => checkpoint.id === piece.id && checkpoint.activated);
+      this.createPieceVisual(piece.kind, state.pieceStates[index], piece.locked, piece.id, piece.at, false, lit, active);
+    });
+    state.placements.forEach((placement, index) => {
+      const id = `放置${index + 1}`;
+      const lit = placement.kind === 'single' && trace.targets.some((target) => target.id === id && target.powered);
+      this.createPieceVisual(placement.kind, placement.state, false, id, placement.at, true, lit, false);
+    });
+    if (this.sourceNozzle) this.sourceNozzle.rotation.y = SOURCE_ROT_Y[state.sourceDirection];
+    this.setBeam(trace);
+  }
+
+  setToolZones(cells: readonly GridPoint[]): void {
+    this.disposeGroup(this.zoneGroup);
+    if (!cells.length || !this.level.reflection) return;
+    const material = new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.13, blending: THREE.AdditiveBlending, depthWrite: false });
+    for (const cell of cells) {
+      const marker = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.92), material);
+      marker.rotation.x = -Math.PI / 2;
+      marker.position.copy(gridToWorld(this.level, cell, 1.8));
+      this.zoneGroup.add(marker);
+    }
+  }
+
+  projectCellToScreen(at: GridPoint): { x: number; y: number } | null {
+    const projected = gridToWorld(this.level, at, PICK_HEIGHT).project(this.camera);
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return {
+      x: rect.left + (projected.x + 1) / 2 * rect.width,
+      y: rect.top + (-projected.y + 1) / 2 * rect.height,
+    };
+  }
+
+  private createPieceVisual(kind: PieceKind, pieceState: number, locked: boolean, id: string, at: GridPoint, placed: boolean, lit: boolean, cpActive: boolean): void {
+    const root = new THREE.Group();
+    root.position.copy(gridToWorld(this.level, at));
+    const baseColor = placed ? '#2b4453' : kind === 'single' ? '#4a3a24' : kind === 'checkpoint' ? '#322a4d' : '#173849';
+    this.addRoofBase(root, baseColor);
+    if (kind === 'checkpoint') {
+      const axis = new THREE.Group();
+      const material = new THREE.MeshStandardMaterial({ color: '#cdb3ff', emissive: '#8a63ff', emissiveIntensity: cpActive ? 2.4 : locked ? 0.5 : 0.95, roughness: 0.3, metalness: 0.4 });
+      for (const side of [-1, 1]) {
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.86, 8), material);
+        pillar.position.set(side * 0.44, OPTICS_HEIGHT, 0);
+        axis.add(pillar);
+      }
+      const gate = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.035, 8, 26, Math.PI), material);
+      gate.position.y = OPTICS_HEIGHT + 0.4;
+      axis.add(gate);
+      const lane = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.03, 0.03), new THREE.MeshBasicMaterial({ color: cpActive ? '#e4d6ff' : '#6c5a9e', transparent: true, opacity: 0.9 }));
+      lane.position.y = OPTICS_HEIGHT;
+      axis.add(lane);
+      axis.rotation.y = pieceState === 0 ? 0 : Math.PI / 2;
+      root.add(axis);
+    } else {
+      const rotor = new THREE.Group();
+      const panelMaterial = kind === 'single'
+        ? new THREE.MeshPhysicalMaterial({ color: '#ffe6b8', metalness: 0.55, roughness: 0.16, clearcoat: 1, emissive: '#9a7435', emissiveIntensity: 0.45 })
+        : kind === 'splitter'
+          ? new THREE.MeshPhysicalMaterial({ color: '#d6ffe9', metalness: 0.5, roughness: 0.14, clearcoat: 1, emissive: MINT, emissiveIntensity: 0.55, transparent: true, opacity: 0.92 })
+          : new THREE.MeshPhysicalMaterial({ color: '#c8f6ff', map: createMirrorTexture(), metalness: 0.68, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08, emissive: '#3da6b7', emissiveIntensity: 0.35 });
+      const panel = new THREE.Mesh(new RoundedBoxGeometry(0.88, 0.76, 0.04, 3, 0.04), panelMaterial);
+      panel.position.y = OPTICS_HEIGHT;
+      rotor.add(panel);
+      if (kind === 'splitter') {
+        const seam = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.82, 0.06), new THREE.MeshBasicMaterial({ color: MINT, transparent: true, opacity: 0.5 }));
+        seam.position.y = OPTICS_HEIGHT;
+        rotor.add(seam);
+      }
+      if (kind === 'single') {
+        const back = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), new THREE.MeshStandardMaterial({ color: '#ffd18a', emissive: GOLD, emissiveIntensity: lit ? 3.4 : 0.5, roughness: 0.3 }));
+        back.position.set(0, OPTICS_HEIGHT, -0.12);
+        rotor.add(back);
+        if (lit) {
+          const light = new THREE.PointLight(GOLD, 6, 4.5, 1.7);
+          light.position.set(0, OPTICS_HEIGHT + 0.2, -0.22);
+          rotor.add(light);
+        }
+        rotor.rotation.y = -pieceState * Math.PI / 2;
+      } else {
+        rotor.rotation.y = pieceState === 0 ? Math.PI / 4 : -Math.PI / 4;
+      }
+      root.add(rotor);
+    }
+    if (locked) {
+      const lock = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.035, 8, 20), new THREE.MeshStandardMaterial({ color: '#8b97a6', metalness: 0.8, roughness: 0.35 }));
+      lock.position.y = 1.62;
+      lock.rotation.x = Math.PI / 2;
+      root.add(lock);
+    }
+    const label = placed ? `${KIND_LABELS[kind]} · 已放置` : `${KIND_LABELS[kind]} ${id}${locked ? ' · 固定' : ''}`;
+    root.add(this.createLabel(label, placed ? '#b9fbff' : kind === 'single' ? '#ffdaa0' : '#d4fbff', 3.05));
+    this.pieceGroup.add(root);
+  }
+
+  private createGroundPickPlane(): void {
+    const extent = this.level.size * GRID_SIZE + 2;
+    this.groundPlane = new THREE.Mesh(new THREE.PlaneGeometry(extent, extent), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+    this.groundPlane.rotation.x = -Math.PI / 2;
+    // 与 projectCellToScreen 的投影高度一致，避免斜视角下的视差错格。
+    const half = Math.floor((this.level.size - 1) / 2);
+    this.groundPlane.position.copy(gridToWorld(this.level, [half, half], PICK_HEIGHT));
+    this.levelGroup.add(this.groundPlane);
+  }
+
+  private worldToGrid(point: THREE.Vector3): GridPoint | null {
+    const origin = gridToWorld(this.level, [0, 0]);
+    const ex = gridToWorld(this.level, [1, 0]).sub(origin);
+    const ez = gridToWorld(this.level, [0, 1]).sub(origin);
+    origin.y = 0;
+    ex.y = 0;
+    ez.y = 0;
+    const delta = point.clone().sub(origin);
+    delta.y = 0;
+    const x = Math.round(delta.dot(ex) / ex.lengthSq());
+    const z = Math.round(delta.dot(ez) / ez.lengthSq());
+    if (x < 0 || z < 0 || x >= this.level.size || z >= this.level.size) return null;
+    return [x, z];
+  }
+
+  private disposeGroup(group: THREE.Group): void {
+    group.traverse((object) => {
+      if (object instanceof THREE.Mesh) object.geometry.dispose();
+      if (object instanceof THREE.Mesh || object instanceof THREE.Sprite) {
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => {
+          const mapped = material as THREE.Material & { map?: THREE.Texture | null };
+          mapped.map?.dispose();
+          material.dispose();
+        });
+      }
+    });
+    group.clear();
+  }
+
   setBeam(trace: TraceResult): void {
+    this.lastTrace = trace;
     this.clearBeam();
     for (const beam of trace.beams) {
       const materials = this.beamMaterials[beam.branch % this.beamMaterials.length];
@@ -287,8 +447,11 @@ export class CityScene {
     const count = this.reducedMotion ? 12 : 72;
     const positions = new Float32Array(count * 3);
     const origin = new THREE.Vector3();
-    for (const target of this.level.targets) origin.add(gridToWorld(this.level, target.at, OPTICS_HEIGHT));
-    origin.divideScalar(Math.max(1, this.level.targets.length));
+    const burstTargets: readonly GridPoint[] = this.level.targets.length
+      ? this.level.targets.map((target) => target.at)
+      : (this.lastTrace?.targets ?? []).map((target) => target.at);
+    for (const at of burstTargets) origin.add(gridToWorld(this.level, at, OPTICS_HEIGHT));
+    origin.divideScalar(Math.max(1, burstTargets.length));
     this.burstVelocities = [];
     for (let index = 0; index < count; index += 1) {
       positions[index * 3] = origin.x;
@@ -319,6 +482,11 @@ export class CityScene {
 
   private createLevelObjects(orientations: readonly MirrorOrientation[]): void {
     this.createSource();
+    if (this.level.reflection) {
+      this.level.obstacles.forEach((point) => this.createObstacle(point));
+      this.createGroundPickPlane();
+      return;
+    }
     this.level.targets.forEach((target) => this.createTarget(target));
     this.level.splitters.forEach((splitter) => this.createSplitter(splitter.at, splitter.id));
     this.level.obstacles.forEach((point) => this.createObstacle(point));
@@ -346,7 +514,20 @@ export class CityScene {
     const light = new THREE.PointLight(CYAN, 7, 6, 1.6);
     light.position.y = OPTICS_HEIGHT + 0.25;
     group.add(light);
-    group.add(this.createLabel(`光塔 · 能量${this.level.sourceEnergy}`, '#b9fbff', 2.95));
+    if (this.level.reflection) {
+      const nozzle = new THREE.Group();
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 10), new THREE.MeshStandardMaterial({ color: '#b9fbff', emissive: CYAN, emissiveIntensity: 1.5, roughness: 0.2 }));
+      cone.rotation.x = Math.PI / 2;
+      cone.position.z = 0.44;
+      nozzle.add(cone);
+      nozzle.position.y = OPTICS_HEIGHT;
+      nozzle.rotation.y = SOURCE_ROT_Y[this.level.sourceDirection];
+      group.add(nozzle);
+      this.sourceNozzle = nozzle;
+      group.add(this.createLabel(this.level.reflection.sourceRotatable ? '光塔 · 点击转向' : '光塔 · 方向固定', '#b9fbff', 2.95));
+    } else {
+      group.add(this.createLabel(`光塔 · 能量${this.level.sourceEnergy}`, '#b9fbff', 2.95));
+    }
     this.levelGroup.add(group);
   }
 
@@ -508,8 +689,13 @@ export class CityScene {
     canvas.addEventListener('pointerup', (event) => {
       canvas.classList.remove('is-dragging');
       if (this.pointerDown && !this.dragged && this.interactive) {
-        const index = this.pickMirror(event);
-        if (index >= 0) this.onMirror(index);
+        if (this.level.reflection) {
+          const cell = this.pickCell(event);
+          if (cell) this.onCell(cell);
+        } else {
+          const index = this.pickMirror(event);
+          if (index >= 0) this.onCell(this.level.mirrors[index].at);
+        }
       }
       this.pointerDown = false;
       this.dragged = false;
@@ -525,6 +711,10 @@ export class CityScene {
   }
 
   private updateHover(event: PointerEvent): void {
+    if (this.level.reflection) {
+      this.setHovered(this.pickCell(event) ? 0 : -1);
+      return;
+    }
     this.setHovered(this.pickMirror(event));
   }
 
@@ -533,7 +723,28 @@ export class CityScene {
     this.pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1, -(event.clientY - bounds.top) / bounds.height * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hit = this.raycaster.intersectObjects(this.hitMeshes, false)[0];
-    return hit ? hit.object.userData.mirrorIndex as number : -1;
+    const value = hit?.object.userData.mirrorIndex;
+    return typeof value === 'number' ? value : -1;
+  }
+
+  private pickCell(event: PointerEvent): GridPoint | null {
+    return this.pickCellAt(event.clientX, event.clientY);
+  }
+
+  pickCellAt(clientX: number, clientY: number): GridPoint | null {
+    const bounds = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.set((clientX - bounds.left) / bounds.width * 2 - 1, -(clientY - bounds.top) / bounds.height * 2 + 1);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    // Reflection 关卡：只用与 projectCellToScreen 同高度的平面拾取，保证“所见格=所点格”。
+    // 器件拾取柱在斜视角下会与邻格射线相切，故不使用。
+    if (this.level.reflection) {
+      if (!this.groundPlane) return null;
+      const planeHit = this.raycaster.intersectObject(this.groundPlane, false)[0];
+      return planeHit ? this.worldToGrid(planeHit.point) : null;
+    }
+    const hit = this.raycaster.intersectObjects(this.hitMeshes, false)[0];
+    const value = hit?.object.userData.mirrorIndex;
+    return typeof value === 'number' ? (this.level.mirrors[value].at as GridPoint) : null;
   }
 
   private setHovered(index: number): void {
@@ -713,6 +924,11 @@ export class CityScene {
     this.hitMeshes.length = 0;
     this.mirrors.clear();
     this.targets.clear();
+    this.disposeGroup(this.pieceGroup);
+    this.disposeGroup(this.zoneGroup);
+    this.groundPlane = undefined;
+    this.sourceNozzle = undefined;
+    this.lastTrace = undefined;
     this.levelGroup.traverse((object) => {
       if (object instanceof THREE.Mesh) object.geometry.dispose();
       if (object instanceof THREE.Mesh || object instanceof THREE.Sprite) {

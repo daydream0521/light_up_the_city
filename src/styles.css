@@ -192,3 +192,9 @@ button:focus-visible { outline: 2px solid var(--site-accent); outline-offset: 4p
   :root { --site-motion: 0; }
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Reflection 移植关卡：库存器件坞与状态筹码 */
+.tool-dock { gap: 12px; }
+.tool-button[disabled] { opacity: .32; pointer-events: none; }
+.tool-button[aria-pressed="true"] { border-color: rgba(105, 230, 242, .75); box-shadow: 0 0 16px rgba(105, 230, 242, .28); background: rgba(105, 230, 242, .1); }
+#light-chip b, #cp-chip b, #unhit-chip b { color: #ffdaa0; font-weight: 600; }

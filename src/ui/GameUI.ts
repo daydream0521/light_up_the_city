@@ -1,7 +1,10 @@
-import { LEVELS, type LevelConfig, type MirrorOrientation } from '../game/levels';
+import { LEVELS, type LevelConfig, type MirrorOrientation, type PieceKind } from '../game/levels';
 import type { TraceResult } from '../game/optics';
+import type { ReflectionTrace } from '../game/reflection';
 import type { LevelRating } from '../game/score';
 import type { BestScore, SaveData } from '../game/storage';
+
+export type ToolSelection = PieceKind | 'erase' | null;
 
 interface UICallbacks {
   onStart: () => void;
@@ -11,6 +14,7 @@ interface UICallbacks {
   onNext: () => void;
   onReplay: () => void;
   onSelectLevel: (index: number) => void;
+  onSelectTool: (tool: ToolSelection) => void;
 }
 
 const icons = {
@@ -22,6 +26,9 @@ const icons = {
 };
 
 const RULES_HINT = '反射 −1 能量 · 分光器平分能量 · 达到所需能量即点亮';
+const REFLECTION_HINT = '库存全部放上屋顶 · 每件器件都被光碰到 · 背灯亮够数 · 闸门恰好穿过一次';
+const TOOL_LABELS: Record<PieceKind, string> = { mirror: '镜面', splitter: '分光镜', single: '背灯镜', checkpoint: '闸门' };
+const TOOL_GLYPHS: Record<PieceKind, string> = { mirror: '镜', splitter: '分', single: '灯', checkpoint: '闸' };
 
 export class GameUI {
   private readonly shell: HTMLElement;
@@ -72,16 +79,23 @@ export class GameUI {
           </div>
           <div id="status-panel" class="status-panel" aria-label="能量与目标状态">
             <div class="status-head">
-              <span class="energy-chip">${icons.bolt}<span>光塔能量 <b id="source-energy">0</b></span></span>
+              <span class="energy-chip" id="energy-chip">${icons.bolt}<span>光塔能量 <b id="source-energy">0</b></span></span>
+              <span class="energy-chip" id="light-chip" hidden>✦<span>背灯 <b id="light-count">0/0</b></span></span>
+              <span class="energy-chip" id="cp-chip" hidden>▤<span>闸门 <b id="cp-count">0/0</b></span></span>
+              <span class="energy-chip" id="unhit-chip" hidden>◈<span>未照到 <b id="unhit-count">0</b></span></span>
               <span class="move-chip">操作 <b id="move-count">0</b></span>
             </div>
             <div id="target-chips" class="target-chips"></div>
             <p class="rules-hint">${RULES_HINT}</p>
           </div>
           <div id="play-hint" class="play-hint"><span class="mouse-symbol" aria-hidden="true"></span><span id="play-hint-text">点击镜面，让光转弯</span></div>
-          <div class="mirror-dock" aria-label="镜面控制">
+          <div id="mirror-dock" class="mirror-dock" aria-label="镜面控制">
             <span class="dock-label">屋顶镜面</span>
             <div id="mirror-buttons" class="mirror-buttons"></div>
+          </div>
+          <div id="tool-dock" class="mirror-dock tool-dock" aria-label="库存器件" hidden>
+            <span class="dock-label">库存器件</span>
+            <div id="tool-buttons" class="mirror-buttons"></div>
           </div>
           <div class="camera-hint">拖动环视 <span>·</span> 滚轮缩放</div>
         </section>
@@ -98,7 +112,7 @@ export class GameUI {
 
         <section id="finale" class="finale-screen screen-layer" hidden>
           <div class="finale-copy">
-            <p class="finale-count">8 / 8 街区已点亮</p>
+            <p class="finale-count">${LEVELS.length} / ${LEVELS.length} 街区已点亮</p>
             <h2>这座城市，因你而亮。</h2>
             <p id="finale-stars"></p>
             <button class="primary-button" data-action="replay"><span>再玩一次</span>${icons.reset}</button>
@@ -120,8 +134,12 @@ export class GameUI {
     this.live = root.querySelector('#live-region')!;
 
     root.addEventListener('click', (event) => {
-      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-action], button[data-mirror], button[data-level]');
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-action], button[data-mirror], button[data-level], button[data-tool]');
       if (!button || button.disabled) return;
+      if (button.dataset.tool !== undefined) {
+        this.callbacks.onSelectTool(button.dataset.tool === 'erase' ? 'erase' : button.dataset.tool as PieceKind);
+        return;
+      }
       if (button.dataset.mirror !== undefined) this.callbacks.onMirror(Number(button.dataset.mirror));
       if (button.dataset.level !== undefined) this.callbacks.onSelectLevel(Number(button.dataset.level));
       switch (button.dataset.action) {
@@ -175,19 +193,37 @@ export class GameUI {
       <span class="target-chip" data-target="${target.id}">
         <i class="target-dot"></i><b>${target.id}</b><span class="target-need">需 ${target.required}</span><span class="target-received">0</span>
       </span>`).join('');
+    const isReflection = !!level.reflection;
+    rootQuery('#energy-chip').hidden = isReflection;
+    rootQuery('#light-chip').hidden = !isReflection;
+    rootQuery('#unhit-chip').hidden = !isReflection;
+    rootQuery('#cp-chip').hidden = true;
+    rootQuery('#target-chips').hidden = isReflection;
+    rootQuery('.rules-hint').textContent = isReflection ? REFLECTION_HINT : RULES_HINT;
+    rootQuery('#mirror-dock').hidden = isReflection;
+    rootQuery('#tool-dock').hidden = !isReflection;
     const hint = rootQuery('#play-hint');
     const hintText = rootQuery('#play-hint-text');
     if (level.id === 0) { hint.hidden = false; hintText.textContent = '点击镜面，让光转弯'; }
-    else if (level.id === 2) { hint.hidden = false; hintText.textContent = '分光器把光分成两束，点亮两座目标'; }
-    else if (level.id === 4) { hint.hidden = false; hintText.textContent = '照到不等于点亮：看清目标还差多少能量'; }
-    else if (level.id === 5) { hint.hidden = false; hintText.textContent = '回光不会增加能量：别把光送回分光器'; }
-    else if (level.id === 6) { hint.hidden = false; hintText.textContent = '有一面镜子同时服务两束光：翻它前先看两条光路'; }
-    else if (level.id === 7) { hint.hidden = false; hintText.textContent = '三个目标共用一份预算：先算清每一跳的损耗'; }
+    else if (level.id === 2) { hint.hidden = false; hintText.textContent = '先在下方选中器件，再点击屋顶放置；点击已放置的器件可以旋转'; }
+    else if (level.id === 3) { hint.hidden = false; hintText.textContent = '分光镜既反射也放行；闸门只认一个方向，且只能恰好穿过一次'; }
+    else if (level.id === 4) { hint.hidden = false; hintText.textContent = '点亮背灯还不够：每件器件都要被光碰到，库存必须全部用完'; }
+    else if (level.id === 5) { hint.hidden = false; hintText.textContent = '先在心里铺完整张光网，再落下第一件器件'; }
     else hint.hidden = true;
-    this.mirrorButtons.innerHTML = level.mirrors.map((mirror, index) => `
-      <button class="mirror-button" data-mirror="${index}" aria-label="镜面 ${mirror.id}，当前方向 ${orientations[index]}，点击切换" aria-pressed="${orientations[index] === '/'}">
-        <span class="mirror-id">${mirror.id}</span><span class="mirror-glyph" aria-hidden="true">${orientations[index]}</span>
-      </button>`).join('');
+    if (isReflection) {
+      rootQuery('#tool-buttons').innerHTML = level.reflection!.inventory.map((item) => `
+        <button class="mirror-button tool-button" data-tool="${item.kind}" title="${TOOL_LABELS[item.kind]}" aria-label="${TOOL_LABELS[item.kind]}，剩余 ${item.count}" aria-pressed="false">
+          <span class="mirror-id">${TOOL_GLYPHS[item.kind]}</span><span class="mirror-glyph">×${item.count}</span>
+        </button>`).join('') + `
+        <button class="mirror-button tool-button" data-tool="erase" title="取回你放置的器件" aria-label="取回你放置的器件" aria-pressed="false" disabled>
+          <span class="mirror-id">取</span><span class="mirror-glyph">回</span>
+        </button>`;
+    } else {
+      this.mirrorButtons.innerHTML = level.mirrors.map((mirror, index) => `
+        <button class="mirror-button" data-mirror="${index}" aria-label="镜面 ${mirror.id}，当前方向 ${orientations[index]}，点击切换" aria-pressed="${orientations[index] === '/'}">
+          <span class="mirror-id">${mirror.id}</span><span class="mirror-glyph" aria-hidden="true">${orientations[index]}</span>
+        </button>`).join('');
+    }
     this.renderProgress(level.id, completed, false, best);
     this.announce(`第 ${level.id + 1} 关，${level.name}。${level.subtitle}`);
   }
@@ -214,6 +250,25 @@ export class GameUI {
       chip.querySelector('.target-received')!.textContent = String(target.received);
       chip.setAttribute('aria-label', `目标 ${target.id}，需要 ${target.required} 能量，当前 ${target.received}，${target.powered ? '已点亮' : '未点亮'}`);
     }
+  }
+
+  updateReflection(trace: ReflectionTrace, left: Record<PieceKind, number>, placements: number, tool: ToolSelection, moves: number): void {
+    rootQuery('#move-count').textContent = String(moves);
+    rootQuery('#light-count').textContent = `${trace.litLights}/${trace.lightTargets}`;
+    rootQuery('#cp-chip').hidden = trace.checkpointsTotal === 0;
+    rootQuery('#cp-count').textContent = `${trace.checkpointsPassed}/${trace.checkpointsTotal}`;
+    rootQuery('#unhit-count').textContent = String(trace.unhitPieces.length);
+    rootQuery('#play-hint').hidden = true;
+    this.shell.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => {
+      const kind = button.dataset.tool as PieceKind | 'erase';
+      if (kind === 'erase') {
+        button.disabled = placements === 0;
+      } else {
+        button.querySelector('.mirror-glyph')!.textContent = `×${left[kind]}`;
+        button.disabled = left[kind] <= 0 && tool !== kind;
+      }
+      button.setAttribute('aria-pressed', String(tool === kind));
+    });
   }
 
   showLevelComplete(level: LevelConfig, isFinal: boolean, rating: LevelRating, best: BestScore): void {

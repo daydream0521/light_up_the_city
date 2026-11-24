@@ -15,7 +15,7 @@ npm run dev
 
 打开终端显示的本地地址。生产构建：`npm run build`；预览构建：`npm run preview`；逻辑测试：`npm test`。
 
-真实 Chrome 验收：`npm run test:e2e`（自动启动开发服务器，默认使用本机 Chrome，可通过 `CHROME_PATH` 指定浏览器）。测试覆盖直接点击 3D 镜面、八关完整流程（含分光、能量、评分、刷新续玩、终局与重玩）及移动端触摸，截图写入 `test-results/`。
+真实 Chrome 验收：`npm run test:e2e`（自动启动开发服务器，默认使用本机 Chrome，可通过 `CHROME_PATH` 指定浏览器）。测试覆盖直接点击 3D 镜面、六关完整流程（经典教学两关 + Reflection 移植四关，含库存放置、背灯、闸门、评分、刷新续玩、终局与重玩）及移动端触摸，截图写入 `test-results/`。移植关卡的来源、许可与规则对比见 [docs/PORTING.md](docs/PORTING.md)。
 
 ## 操作与规则
 

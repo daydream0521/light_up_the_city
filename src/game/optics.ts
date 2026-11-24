@@ -1,6 +1,6 @@
 import type { Direction, GridPoint, LevelConfig, MirrorOrientation } from './levels';
 
-export type TraceEnd = 'target' | 'obstacle' | 'boundary' | 'exhausted' | 'split';
+export type TraceEnd = 'target' | 'obstacle' | 'boundary' | 'exhausted' | 'split' | 'absorbed' | 'loop';
 
 export interface BeamPath {
   points: GridPoint[];
