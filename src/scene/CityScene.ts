@@ -8,6 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { DISTRICT_CENTERS, GRID_SIZE, LEVELS, OPTICS_HEIGHT, type GridPoint, type LevelConfig, type PieceKind } from '../game/levels';
 import type { ReflectionGameState, ReflectionTrace } from '../game/reflection';
 import { createCity, gridToWorld, type CityVisual } from './cityGeometry';
+import { createCityLife, type CityLife } from './cityLife';
 
 interface BeamSegment {
   start: THREE.Vector3;
@@ -50,6 +51,7 @@ export class CityScene {
   private readonly controls: OrbitControls;
   private readonly composer: EffectComposer;
   private readonly city: CityVisual;
+  private readonly cityLife: CityLife;
   private readonly clock = new THREE.Clock();
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
@@ -91,6 +93,8 @@ export class CityScene {
   private pointerDown = false;
   private dragged = false;
   private interactive = false;
+  private freeView = false;
+  private finaleClearAt = -1;
   private screen: 'intro' | 'level' | 'finale' = 'intro';
 
   constructor(private readonly container: HTMLElement, private readonly onCell: (at: GridPoint) => void) {
@@ -144,6 +148,7 @@ export class CityScene {
     this.scene.add(rim);
 
     this.city = createCity();
+    this.cityLife = createCityLife(this.city, this.reducedMotion);
     this.scene.add(this.city.group);
     this.scene.add(this.levelGroup, this.beamGroup, this.pieceGroup, this.zoneGroup);
 
@@ -172,6 +177,7 @@ export class CityScene {
   showIntro(immediate = false): void {
     this.screen = 'intro';
     this.interactive = false;
+    this.applyLevelControls();
     this.controls.autoRotate = !this.reducedMotion;
     this.moveCamera(new THREE.Vector3(18, 21, 25), new THREE.Vector3(0, 0.6, 0), this.cameraViewSize(29, 39), immediate ? 0 : 1.8);
   }
@@ -179,8 +185,10 @@ export class CityScene {
   setLevel(index: number, trace: ReflectionTrace, immediate = false, reflectionState: ReflectionGameState): void {
     this.level = LEVELS[index];
     this.screen = 'level';
+    this.finaleClearAt = -1;
     this.interactive = true;
     this.controls.autoRotate = false;
+    this.applyLevelControls();
     this.clearLevel();
     this.createLevelObjects();
     this.setReflection(reflectionState, trace);
@@ -458,7 +466,38 @@ export class CityScene {
     this.controls.autoRotate = !this.reducedMotion;
     this.controls.autoRotateSpeed = 0.1;
     this.setDistrictProgress([1, 1, 1, 1]);
+    this.finaleClearAt = this.clock.elapsedTime + 1.0;
     this.moveCamera(new THREE.Vector3(20, 24, 28), new THREE.Vector3(0, 0.4, 0), this.cameraViewSize(30, 40), this.reducedMotion ? 0 : 3.4);
+  }
+
+  resetFinaleView(): void {
+    if (this.screen !== 'finale') return;
+    this.moveCamera(new THREE.Vector3(20, 24, 28), new THREE.Vector3(0, 0.4, 0), this.cameraViewSize(30, 40), this.reducedMotion ? 0 : 1.4);
+  }
+
+  toggleFreeSpin(): boolean {
+    this.controls.autoRotate = !this.controls.autoRotate;
+    this.controls.autoRotateSpeed = 0.35;
+    return this.controls.autoRotate;
+  }
+
+  private enterFreeView(): void {
+    this.freeView = true;
+    this.controls.enablePan = true;
+    this.controls.minZoom = 0.4;
+    this.controls.maxZoom = 8;
+    this.controls.minPolarAngle = Math.PI * 0.06;
+    this.controls.maxPolarAngle = Math.PI * 0.47;
+    this.controls.autoRotate = false;
+  }
+
+  private applyLevelControls(): void {
+    this.freeView = false;
+    this.controls.enablePan = false;
+    this.controls.minZoom = 0.72;
+    this.controls.maxZoom = 1.8;
+    this.controls.minPolarAngle = Math.PI * 0.19;
+    this.controls.maxPolarAngle = Math.PI * 0.39;
   }
 
   private createLevelObjects(): void {
@@ -606,6 +645,7 @@ export class CityScene {
       this.cameraTween = undefined;
       this.controls.enabled = true;
       this.controls.autoRotate = this.screen !== 'level' && !this.reducedMotion;
+      if (this.screen === 'finale') this.enterFreeView();
       return;
     }
     this.cameraTween = {
@@ -677,9 +717,19 @@ export class CityScene {
         this.controls.enabled = true;
         this.controls.autoRotate = this.screen !== 'level' && !this.reducedMotion;
         this.renderer.domElement.dataset.cameraMoving = 'false';
+        if (this.screen === 'finale') this.enterFreeView();
       }
     }
     this.controls.update();
+    if (this.freeView) {
+      this.controls.target.x = THREE.MathUtils.clamp(this.controls.target.x, -11.5, 11.5);
+      this.controls.target.y = THREE.MathUtils.clamp(this.controls.target.y, 0.2, 8);
+      this.controls.target.z = THREE.MathUtils.clamp(this.controls.target.z, -11.5, 11.5);
+    }
+    if (this.finaleClearAt >= 0 && this.clock.elapsedTime >= this.finaleClearAt) {
+      this.finaleClearAt = -1;
+      this.clearLevel();
+    }
 
     for (let index = 0; index < 4; index += 1) {
       this.lightLevels[index] = THREE.MathUtils.damp(this.lightLevels[index], this.lightTargets[index], 1.65, delta);
@@ -692,6 +742,7 @@ export class CityScene {
       district.poolMaterial.opacity = Math.max(0, level - 0.25) * 0.4;
       district.light.intensity = 0.08 + level * 7.5;
     }
+    this.cityLife.update(elapsed, delta, this.lightLevels);
 
     if (!this.reducedMotion) this.updateRain(delta);
     this.pulses.forEach((pulse, index) => {

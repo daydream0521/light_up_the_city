@@ -13,6 +13,8 @@ interface UICallbacks {
   onReplay: () => void;
   onSelectLevel: (index: number) => void;
   onSelectTool: (tool: ToolSelection) => void;
+  onPanorama: () => void;
+  onToggleSpin: () => boolean;
 }
 
 const icons = {
@@ -21,6 +23,10 @@ const icons = {
   sound: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Zm4 4a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>',
   help: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.3-.9.8-.9 1.5v.4"/><path d="M12 16.6h.01"/></svg>',
+  panorama: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8V5h3m12 0h3v3m0 8v3h-3M6 19H3v-3m2-6h4l2-2 2 4 2-2h4"/></svg>',
+  spin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4"/></svg>',
+  eyeOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10 5.3A9.7 9.7 0 0 1 12 5c5 0 9 4.5 10 7-.3.8-1 1.9-2 3M6.6 6.6C4.4 8.1 2.7 10.4 2 12c1 2.5 5 7 10 7 1.5 0 2.9-.4 4.2-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>',
+  eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12c1-2.5 5-7 10-7s9 4.5 10 7c-1 2.5-5 7-10 7S3 14.5 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
 };
 
 const TOOL_LABELS: Record<PieceKind, string> = { mirror: '镜面', splitter: '分光镜', single: '背灯镜', checkpoint: '闸门' };
@@ -114,7 +120,13 @@ export class GameUI {
             <p id="finale-stars"></p>
             <button class="primary-button" data-action="replay"><span>再玩一次</span>${icons.reset}</button>
           </div>
+          <div class="observe-bar" role="group" aria-label="城市观赏控制">
+            <button class="icon-button" data-action="panorama" aria-label="回到全景" title="回到全景">${icons.panorama}</button>
+            <button class="icon-button" data-action="spin" aria-label="自动环视" aria-pressed="false" title="自动环视">${icons.spin}</button>
+            <button class="icon-button" data-action="hide-ui" aria-label="隐藏界面" title="隐藏界面">${icons.eyeOff}</button>
+          </div>
         </section>
+        <button id="show-ui" class="icon-button show-ui-button" data-action="show-ui" aria-label="恢复界面" title="恢复界面" hidden>${icons.eye}</button>
 
         <div id="loading" class="loading-screen"><span class="loading-beam"></span><p>正在唤醒夜城…</p></div>
         <div id="fatal" class="fatal-screen" hidden><h1>夜城暂时无法苏醒</h1><p id="fatal-message"></p><button class="primary-button" onclick="location.reload()">重新加载</button></div>
@@ -145,6 +157,10 @@ export class GameUI {
         case 'replay': this.callbacks.onReplay(); break;
         case 'brief': this.openBrief(); break;
         case 'brief-ok': this.closeBrief(); break;
+        case 'panorama': this.callbacks.onPanorama(); break;
+        case 'spin': button.setAttribute('aria-pressed', String(this.callbacks.onToggleSpin())); break;
+        case 'hide-ui': this.setObserveHidden(true); break;
+        case 'show-ui': this.setObserveHidden(false); break;
       }
     });
 
@@ -304,6 +320,12 @@ export class GameUI {
     rootQuery('#finale-stars').textContent = `收集 ${totalStars} / ${LEVELS.length * 3} ★ · 点击顶部街区可重玩任意关卡`;
     this.renderProgress(LEVELS.length - 1, LEVELS.map((level) => level.id), false, save.best);
     this.announce(`${LEVELS.length} 段街角全部点亮。这座城市，因你而亮。`);
+  }
+
+  setObserveHidden(hidden: boolean): void {
+    this.shell.classList.toggle('observe-hidden', hidden);
+    rootQuery<HTMLButtonElement>('#show-ui').hidden = !hidden;
+    this.announce(hidden ? '界面已隐藏，可自由观赏城市。' : '界面已恢复。');
   }
 
   setMuted(muted: boolean): void {

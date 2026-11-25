@@ -1,19 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-async function clickCell(page: Page, x: number, z: number): Promise<void> {
-  await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
-  const point = await page.evaluate(([cx, cz]) => {
-    const hook = (window as unknown as { __qoderTest: { projectCell: (x: number, z: number) => { x: number; y: number } | null } }).__qoderTest;
-    return hook.projectCell(cx, cz);
-  }, [x, z]);
-  if (!point) throw new Error(`cell ${x},${z} cannot be projected`);
-  await page.mouse.click(point.x, point.y);
-}
-
-async function pickTool(page: Page, tool: string): Promise<void> {
-  await page.locator(`[data-tool="${tool}"]`).click();
-  await expect(page.locator(`[data-tool="${tool}"]`)).toHaveAttribute('aria-pressed', 'true');
-}
+import { clickCell, pickTool } from './board';
 
 interface ReflectionPlan {
   sourceClicks?: number;

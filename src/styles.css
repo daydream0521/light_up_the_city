@@ -129,7 +129,13 @@ button:focus-visible { outline: 2px solid var(--site-accent); outline-offset: 4p
 .toast-score { margin: 12px 0 24px; color: #9aabc4; font-size: 12px; letter-spacing: .03em; }
 .level-toast .primary-button { min-height: 46px; font-size: 14px; }
 
-.finale-screen { display: flex; align-items: flex-end; justify-content: center; padding: 60px 24px calc(7vh * var(--site-space)); text-align: center; background: linear-gradient(to top, rgba(3, 8, 18, .92), rgba(3, 8, 18, .25) 43%, transparent 68%); }
+.finale-screen { display: flex; align-items: flex-end; justify-content: center; padding: 60px 24px calc(7vh * var(--site-space)); text-align: center; background: linear-gradient(to top, rgba(3, 8, 18, .92), rgba(3, 8, 18, .25) 43%, transparent 68%); pointer-events: none; }
+.finale-screen button { pointer-events: auto; }
+.observe-bar { position: absolute; right: calc(24px * var(--site-space)); bottom: calc(24px * var(--site-space)); display: flex; gap: 8px; }
+.show-ui-button { position: absolute; z-index: 12; right: calc(24px * var(--site-space)); bottom: calc(24px * var(--site-space)); }
+.show-ui-button[hidden] { display: none; }
+.game-shell.observe-hidden .finale-copy, .game-shell.observe-hidden .observe-bar, .game-shell.observe-hidden .game-header { opacity: 0; pointer-events: none; }
+.game-shell.observe-hidden .finale-screen { background: none; }
 .finale-copy { animation: finale-enter calc(900ms * var(--site-motion)) ease both 1.2s; }
 @keyframes finale-enter { from { opacity: 0; transform: translateY(18px); } }
 .finale-count { margin: 0 0 12px; color: #ffcf82; font-size: 12px; letter-spacing: .16em; }
