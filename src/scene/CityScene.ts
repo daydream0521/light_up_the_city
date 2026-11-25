@@ -98,6 +98,8 @@ export class CityScene {
   private pointerDown = false;
   private dragged = false;
   private interactive = false;
+  private freeView = false;
+  private finaleClearAt = -1;
   private screen: 'intro' | 'level' | 'finale' = 'intro';
 
   constructor(private readonly container: HTMLElement, private readonly onMirror: (index: number) => void) {
@@ -180,6 +182,7 @@ export class CityScene {
   showIntro(immediate = false): void {
     this.screen = 'intro';
     this.interactive = false;
+    this.applyLevelControls();
     this.controls.autoRotate = !this.reducedMotion;
     this.moveCamera(new THREE.Vector3(18, 21, 25), new THREE.Vector3(0, 0.6, 0), this.cameraViewSize(29, 39), immediate ? 0 : 1.8);
   }
@@ -189,6 +192,7 @@ export class CityScene {
     this.screen = 'level';
     this.interactive = true;
     this.controls.autoRotate = false;
+    this.applyLevelControls();
     this.clearLevel();
     this.createLevelObjects(orientations);
     this.setBeam(trace);
@@ -317,7 +321,38 @@ export class CityScene {
     this.controls.autoRotate = !this.reducedMotion;
     this.controls.autoRotateSpeed = 0.1;
     this.setDistrictProgress([1, 1, 1, 1]);
+    this.finaleClearAt = this.clock.elapsedTime + 1.0;
     this.moveCamera(new THREE.Vector3(20, 24, 28), new THREE.Vector3(0, 0.4, 0), this.cameraViewSize(30, 40), this.reducedMotion ? 0 : 3.4);
+  }
+
+  resetFinaleView(): void {
+    if (this.screen !== 'finale') return;
+    this.moveCamera(new THREE.Vector3(20, 24, 28), new THREE.Vector3(0, 0.4, 0), this.cameraViewSize(30, 40), this.reducedMotion ? 0 : 1.4);
+  }
+
+  toggleFreeSpin(): boolean {
+    this.controls.autoRotate = !this.controls.autoRotate;
+    this.controls.autoRotateSpeed = 0.35;
+    return this.controls.autoRotate;
+  }
+
+  private enterFreeView(): void {
+    this.freeView = true;
+    this.controls.enablePan = true;
+    this.controls.minZoom = 0.4;
+    this.controls.maxZoom = 8;
+    this.controls.minPolarAngle = Math.PI * 0.06;
+    this.controls.maxPolarAngle = Math.PI * 0.47;
+    this.controls.autoRotate = false;
+  }
+
+  private applyLevelControls(): void {
+    this.freeView = false;
+    this.controls.enablePan = false;
+    this.controls.minZoom = 0.72;
+    this.controls.maxZoom = 1.8;
+    this.controls.minPolarAngle = Math.PI * 0.19;
+    this.controls.maxPolarAngle = Math.PI * 0.39;
   }
 
   private createLevelObjects(orientations: readonly MirrorOrientation[]): void {
@@ -557,6 +592,7 @@ export class CityScene {
       this.cameraTween = undefined;
       this.controls.enabled = true;
       this.controls.autoRotate = this.screen !== 'level' && !this.reducedMotion;
+      if (this.screen === 'finale') this.enterFreeView();
       return;
     }
     this.cameraTween = {
@@ -628,9 +664,19 @@ export class CityScene {
         this.controls.enabled = true;
         this.controls.autoRotate = this.screen !== 'level' && !this.reducedMotion;
         this.renderer.domElement.dataset.cameraMoving = 'false';
+        if (this.screen === 'finale') this.enterFreeView();
       }
     }
     this.controls.update();
+    if (this.freeView) {
+      this.controls.target.x = THREE.MathUtils.clamp(this.controls.target.x, -11.5, 11.5);
+      this.controls.target.y = THREE.MathUtils.clamp(this.controls.target.y, 0.2, 8);
+      this.controls.target.z = THREE.MathUtils.clamp(this.controls.target.z, -11.5, 11.5);
+    }
+    if (this.finaleClearAt >= 0 && this.clock.elapsedTime >= this.finaleClearAt) {
+      this.finaleClearAt = -1;
+      this.clearLevel();
+    }
 
     this.mirrors.forEach((mirror, index) => {
       mirror.rotor.rotation.y = THREE.MathUtils.damp(mirror.rotor.rotation.y, mirror.targetRotation, 13, delta);

@@ -26,6 +26,8 @@ const ui = new GameUI(document.querySelector<HTMLElement>('#app')!, {
   onNext: nextLevel,
   onReplay: replay,
   onSelectLevel: selectLevel,
+  onPanorama: () => scene.resetFinaleView(),
+  onToggleSpin: () => scene.toggleFreeSpin(),
 });
 
 let scene: CityScene;
