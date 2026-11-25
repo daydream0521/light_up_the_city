@@ -1,10 +1,9 @@
 import './styles.css';
 import { CityAudio } from './game/audio';
-import { LEVELS, type Direction, type GridPoint, type MirrorOrientation } from './game/levels';
-import { traceLight, type TraceResult } from './game/optics';
+import { LEVELS, type Direction, type GridPoint } from './game/levels';
 import {
   canPlaceAt, initialReflectionState, inventoryLeft, placementZones, traceReflection,
-  type ReflectionGameState,
+  type ReflectionGameState, type ReflectionTrace,
 } from './game/reflection';
 import { rateLevel } from './game/score';
 import { clearProgress, loadSave, writeSave, type SaveData } from './game/storage';
@@ -13,20 +12,29 @@ import { GameUI, type ToolSelection } from './ui/GameUI';
 
 type GameState = 'intro' | 'playing' | 'levelComplete' | 'finale';
 
+/** 教学提示：短文案 + 玩家做出对应操作后自动消失（不强制阅读）。 */
+const LEVEL_HINTS: Record<number, { text: string; dismiss: 'piece' | 'place' | 'source' }> = {
+  0: { text: '点击镜面翻转朝向，把光折进背灯镜的金色一面', dismiss: 'piece' },
+  1: { text: '先在下方选中器件，再点击发亮的屋顶放下；点击已放置的器件可以旋转', dismiss: 'place' },
+  2: { text: '先在下方选中器件，再点击发亮的屋顶放下；点「取回」可收回放错的器件', dismiss: 'place' },
+  3: { text: '旋转分光镜试试：它既反射光，也让光直行穿过', dismiss: 'piece' },
+  4: { text: '点击闸门切换南北/东西向；带锁环的器件不能调整', dismiss: 'piece' },
+  5: { text: '点击光塔可以转向——它也有四个朝向', dismiss: 'source' },
+};
+
 let save: SaveData = loadSave();
 let state: GameState = 'intro';
 let currentLevel = save.currentLevel;
-let orientations: MirrorOrientation[] = initialOrientations(currentLevel);
-let reflectionState: ReflectionGameState | null = LEVELS[currentLevel].reflection ? initialReflectionState(LEVELS[currentLevel]) : null;
+let reflectionState: ReflectionGameState = initialReflectionState(LEVELS[currentLevel]);
 let tool: ToolSelection = null;
 let moves = 0;
+let hintDismiss: 'piece' | 'place' | 'source' | null = null;
 let toastTimer = 0;
 let nextTimer = 0;
 const audio = new CityAudio();
 
 const ui = new GameUI(document.querySelector<HTMLElement>('#app')!, {
   onStart: startGame,
-  onMirror: rotateMirror,
   onReset: resetLevel,
   onToggleMute: toggleMute,
   onNext: nextLevel,
@@ -39,11 +47,7 @@ let scene: CityScene;
 try {
   scene = new CityScene(ui.container, handleCell);
   scene.setCompletedDistricts(save.completed);
-  if (reflectionState) {
-    scene.setLevel(currentLevel, [], traceReflection(LEVELS[currentLevel], reflectionState), true, reflectionState);
-  } else {
-    scene.setLevel(currentLevel, orientations, traceLight(LEVELS[currentLevel], orientations), true);
-  }
+  scene.setLevel(currentLevel, traceReflection(LEVELS[currentLevel], reflectionState), true, reflectionState);
   scene.showIntro(true);
   ui.ready();
   ui.showIntro(save);
@@ -54,7 +58,6 @@ try {
     getTool: () => tool,
     summary: () => {
       const level = LEVELS[currentLevel];
-      if (!level.reflection || !reflectionState) return { level: currentLevel, classic: true };
       const trace = traceReflection(level, reflectionState);
       return {
         level: currentLevel, won: trace.won, lit: trace.litLights, unhit: trace.unhitPieces.length, cp: trace.checkpointsPassed, moves,
@@ -66,10 +69,6 @@ try {
 } catch (error) {
   console.error('Unable to initialize the city', error);
   ui.fatal('当前浏览器未能启动 WebGL。请使用最新版 Chrome 或 Edge，并确认已开启硬件加速。');
-}
-
-function initialOrientations(level: number): MirrorOrientation[] {
-  return LEVELS[level].mirrors.map((mirror) => mirror.initial);
 }
 
 function startGame(): void {
@@ -91,37 +90,32 @@ function loadLevel(index: number, immediate = false): void {
   moves = 0;
   tool = null;
   const level = LEVELS[index];
+  const hint = LEVEL_HINTS[index];
+  hintDismiss = hint?.dismiss ?? null;
   ui.hideLevelComplete();
-  if (level.reflection) {
-    reflectionState = initialReflectionState(level);
-    orientations = [];
-    const trace = traceReflection(level, reflectionState);
-    ui.showLevel(level, orientations, save.completed, save.best);
-    ui.updateReflection(trace, inventoryLeft(level, reflectionState), 0, null, 0);
-    scene.setLevel(index, [], trace, immediate, reflectionState);
-  } else {
-    reflectionState = null;
-    orientations = initialOrientations(index);
-    const trace = traceLight(level, orientations);
-    ui.showLevel(level, orientations, save.completed, save.best);
-    ui.updateStatus(trace, moves);
-    scene.setLevel(index, orientations, trace, immediate);
-  }
+  reflectionState = initialReflectionState(level);
+  const trace = traceReflection(level, reflectionState);
+  ui.showLevel(level, save.completed, save.best, hint?.text ?? null);
+  ui.updateReflection(trace, inventoryLeft(level, reflectionState), 0, null, 0);
+  scene.setLevel(index, trace, immediate, reflectionState);
   scene.setInteractive(true);
   save.currentLevel = index;
   writeSave(save);
 }
 
+function dismissHint(action: 'piece' | 'place' | 'source'): void {
+  if (hintDismiss === null) return;
+  if (hintDismiss === action) {
+    hintDismiss = null;
+    ui.clearHint();
+  }
+}
+
 function handleCell(at: GridPoint): void {
   if (state !== 'playing' || !scene) return;
   const level = LEVELS[currentLevel];
-  const sameCell = (point: GridPoint): boolean => point[0] === at[0] && point[1] === at[1];
-  if (!level.reflection || !reflectionState) {
-    const index = level.mirrors.findIndex((mirror) => sameCell(mirror.at));
-    if (index >= 0) rotateMirror(index);
-    return;
-  }
   const rs = reflectionState;
+  const sameCell = (point: GridPoint): boolean => point[0] === at[0] && point[1] === at[1];
   const placementIndex = rs.placements.findIndex((placement) => sameCell(placement.at));
 
   if (tool === 'erase') {
@@ -142,6 +136,7 @@ function handleCell(at: GridPoint): void {
     rs.placements.push({ at: [at[0], at[1]], kind: tool, state: 0 });
     moves += 1;
     audio.rotate();
+    dismissHint('place');
     // 与原作一致：每次放置后取消选中，避免误把旋转点击当作放置。
     setTool(null);
     return;
@@ -151,6 +146,7 @@ function handleCell(at: GridPoint): void {
     placement.state = (placement.state + 1) % (placement.kind === 'single' ? 4 : 2);
     moves += 1;
     audio.rotate();
+    dismissHint('piece');
     refreshReflection();
     return;
   }
@@ -161,6 +157,7 @@ function handleCell(at: GridPoint): void {
     rs.pieceStates[pieceIndex] = (rs.pieceStates[pieceIndex] + 1) % (piece.kind === 'single' ? 4 : 2);
     moves += 1;
     audio.rotate();
+    dismissHint('piece');
     refreshReflection();
     return;
   }
@@ -169,51 +166,40 @@ function handleCell(at: GridPoint): void {
     rs.sourceDirection = ((rs.sourceDirection + 1) % 4) as Direction;
     moves += 1;
     audio.rotate();
+    dismissHint('source');
     refreshReflection();
   }
 }
 
 function selectTool(next: ToolSelection): void {
-  if (state !== 'playing' || !LEVELS[currentLevel].reflection) return;
+  if (state !== 'playing') return;
   setTool(tool === next ? null : next);
 }
 
 function setTool(next: ToolSelection): void {
   tool = next;
   const level = LEVELS[currentLevel];
-  const zones = level.reflection && reflectionState && next && next !== 'erase'
-    ? placementZones(level, reflectionState)
-    : [];
+  const zones = next && next !== 'erase' ? placementZones(level, reflectionState) : [];
   scene?.setToolZones(zones);
   refreshReflection();
 }
 
 function refreshReflection(): void {
   const level = LEVELS[currentLevel];
-  if (!level.reflection || !reflectionState || !scene) return;
+  if (!scene) return;
   const trace = traceReflection(level, reflectionState);
   scene.setReflection(reflectionState, trace);
   ui.updateReflection(trace, inventoryLeft(level, reflectionState), reflectionState.placements.length, tool, moves);
   if (trace.won && state === 'playing') completeLevel(trace);
 }
 
-function rotateMirror(index: number): void {
-  if (state !== 'playing' || !orientations[index]) return;
-  orientations[index] = orientations[index] === '/' ? '\\' : '/';
-  moves += 1;
-  scene.updateMirror(index, orientations[index]);
-  ui.updateMirrors(orientations);
-  audio.rotate();
-  const trace = traceLight(LEVELS[currentLevel], orientations);
-  scene.setBeam(trace);
-  ui.updateStatus(trace, moves);
-  if (trace.allPowered) completeLevel(trace);
-}
-
-function completeLevel(trace: TraceResult): void {
+function completeLevel(trace: ReflectionTrace): void {
+  void trace;
   state = 'levelComplete';
+  hintDismiss = null;
+  ui.clearHint();
   scene.setInteractive(false);
-  const rating = rateLevel(LEVELS[currentLevel], moves, trace);
+  const rating = rateLevel(LEVELS[currentLevel], moves);
   const previous = save.best[currentLevel];
   if (!previous || rating.moves < previous.moves) {
     save.best[currentLevel] = { moves: rating.moves, stars: rating.stars };

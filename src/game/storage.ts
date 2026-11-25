@@ -12,13 +12,32 @@ export interface SaveData {
   muted: boolean;
 }
 
-const STORAGE_KEY = 'light-up-the-city-v2';
+const STORAGE_KEY = 'light-up-the-city-v3';
+const LEGACY_KEY = 'light-up-the-city-v2';
 const LEVEL_COUNT = LEVELS.length;
 const DEFAULT_SAVE: SaveData = { currentLevel: 0, completed: [], best: {}, muted: true };
 
+/** 关卡重排后旧进度按 ID 对应不上新关卡，直接重置进度，仅保留静音偏好。 */
+function legacyMuted(): boolean | null {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(LEGACY_KEY) ?? 'null');
+    if (value && typeof value === 'object' && typeof (value as Partial<SaveData>).muted === 'boolean') {
+      return (value as SaveData).muted;
+    }
+  } catch {
+    // Ignore unreadable legacy saves.
+  }
+  return null;
+}
+
 export function loadSave(): SaveData {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === null) {
+      const migrated = legacyMuted();
+      return { ...DEFAULT_SAVE, best: {}, muted: migrated ?? DEFAULT_SAVE.muted };
+    }
+    const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== 'object') return { ...DEFAULT_SAVE, best: {} };
     const data = value as Partial<SaveData>;
     const completed = Array.isArray(data.completed)

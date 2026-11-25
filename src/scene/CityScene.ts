@@ -5,22 +5,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { DISTRICT_CENTERS, GRID_SIZE, LEVELS, OPTICS_HEIGHT, type GridPoint, type LevelConfig, type MirrorOrientation, type PieceKind, type TargetConfig } from '../game/levels';
-import type { TraceResult } from '../game/optics';
+import { DISTRICT_CENTERS, GRID_SIZE, LEVELS, OPTICS_HEIGHT, type GridPoint, type LevelConfig, type PieceKind } from '../game/levels';
 import type { ReflectionGameState, ReflectionTrace } from '../game/reflection';
 import { createCity, gridToWorld, type CityVisual } from './cityGeometry';
-
-interface MirrorVisual {
-  rotor: THREE.Group;
-  ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshStandardMaterial>;
-  targetRotation: number;
-}
-
-interface TargetVisual {
-  material: THREE.MeshStandardMaterial;
-  ringMaterial: THREE.MeshStandardMaterial;
-  light: THREE.PointLight;
-}
 
 interface BeamSegment {
   start: THREE.Vector3;
@@ -66,9 +53,6 @@ export class CityScene {
   private readonly clock = new THREE.Clock();
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
-  private readonly hitMeshes: THREE.Mesh[] = [];
-  private readonly mirrors = new Map<number, MirrorVisual>();
-  private readonly targets = new Map<string, TargetVisual>();
   private readonly beamGroup = new THREE.Group();
   private readonly levelGroup = new THREE.Group();
   private readonly pieceGroup = new THREE.Group();
@@ -96,7 +80,7 @@ export class CityScene {
   private level: LevelConfig = LEVELS[0];
   private groundPlane?: THREE.Mesh;
   private sourceNozzle?: THREE.Group;
-  private lastTrace?: TraceResult;
+  private lastTrace?: ReflectionTrace;
   private burst?: THREE.Points;
   private burstVelocities: THREE.Vector3[] = [];
   private burstLife = 0;
@@ -192,18 +176,14 @@ export class CityScene {
     this.moveCamera(new THREE.Vector3(18, 21, 25), new THREE.Vector3(0, 0.6, 0), this.cameraViewSize(29, 39), immediate ? 0 : 1.8);
   }
 
-  setLevel(index: number, orientations: readonly MirrorOrientation[], trace: TraceResult, immediate = false, reflectionState: ReflectionGameState | null = null): void {
+  setLevel(index: number, trace: ReflectionTrace, immediate = false, reflectionState: ReflectionGameState): void {
     this.level = LEVELS[index];
     this.screen = 'level';
     this.interactive = true;
     this.controls.autoRotate = false;
     this.clearLevel();
-    this.createLevelObjects(orientations);
-    if (this.level.reflection && reflectionState) {
-      this.setReflection(reflectionState, trace as ReflectionTrace);
-    } else {
-      this.setBeam(trace);
-    }
+    this.createLevelObjects();
+    this.setReflection(reflectionState, trace);
     this.setToolZones([]);
     // gridToWorld 以 7 格棋盘为基准居中（x-3）；非 7 格关卡需把镜头对准实际棋盘中心。
     const boardOffset = ((this.level.size - 1) / 2 - 3) * GRID_SIZE;
@@ -211,24 +191,22 @@ export class CityScene {
     this.moveCamera(center.clone().add(new THREE.Vector3(9.6, 12.2, 13.4)), center, this.cameraViewSize(13.6, 17.2), immediate ? 0 : 1.55);
   }
 
-  updateMirror(index: number, orientation: MirrorOrientation): void {
-    const mirror = this.mirrors.get(index);
-    if (mirror) mirror.targetRotation = orientation === '/' ? Math.PI / 4 : -Math.PI / 4;
-  }
-
   setReflection(state: ReflectionGameState, trace: ReflectionTrace): void {
     this.lastTrace = trace;
     this.disposeGroup(this.pieceGroup);
-    const reflection = this.level.reflection!;
+    const reflection = this.level.reflection;
+    const cpOver = trace.checkpointsPassed > trace.checkpointsTotal;
     reflection.pieces.forEach((piece, index) => {
       const lit = piece.kind === 'single' && trace.targets.some((target) => target.id === piece.id && target.powered);
       const active = piece.kind === 'checkpoint' && trace.checkpoints.some((checkpoint) => checkpoint.id === piece.id && checkpoint.activated);
-      this.createPieceVisual(piece.kind, state.pieceStates[index], piece.locked, piece.id, piece.at, false, lit, active);
+      const hit = !trace.unhitPieces.includes(piece.id);
+      this.createPieceVisual(piece.kind, state.pieceStates[index], piece.locked, piece.id, piece.at, false, lit, active, hit, cpOver);
     });
     state.placements.forEach((placement, index) => {
       const id = `放置${index + 1}`;
       const lit = placement.kind === 'single' && trace.targets.some((target) => target.id === id && target.powered);
-      this.createPieceVisual(placement.kind, placement.state, false, id, placement.at, true, lit, false);
+      const hit = !trace.unhitPieces.includes(id);
+      this.createPieceVisual(placement.kind, placement.state, false, id, placement.at, true, lit, false, hit, cpOver);
     });
     if (this.sourceNozzle) this.sourceNozzle.rotation.y = SOURCE_ROT_Y[state.sourceDirection];
     this.setBeam(trace);
@@ -236,7 +214,7 @@ export class CityScene {
 
   setToolZones(cells: readonly GridPoint[]): void {
     this.disposeGroup(this.zoneGroup);
-    if (!cells.length || !this.level.reflection) return;
+    if (!cells.length) return;
     const material = new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.13, blending: THREE.AdditiveBlending, depthWrite: false });
     for (const cell of cells) {
       const marker = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.92), material);
@@ -255,11 +233,24 @@ export class CityScene {
     };
   }
 
-  private createPieceVisual(kind: PieceKind, pieceState: number, locked: boolean, id: string, at: GridPoint, placed: boolean, lit: boolean, cpActive: boolean): void {
+  private createPieceVisual(kind: PieceKind, pieceState: number, locked: boolean, id: string, at: GridPoint, placed: boolean, lit: boolean, cpActive: boolean, hit: boolean, cpOver: boolean): void {
     const root = new THREE.Group();
     root.position.copy(gridToWorld(this.level, at));
     const baseColor = placed ? '#2b4453' : kind === 'single' ? '#4a3a24' : kind === 'checkpoint' ? '#322a4d' : '#173849';
     this.addRoofBase(root, baseColor);
+    // 状态环：未照到=灰、被照到=青、背灯点亮=金、闸门通过=紫、闸门超额=红。
+    const ringColor = kind === 'checkpoint' && cpOver ? '#ff7d6b'
+      : lit ? GOLD
+        : cpActive ? '#b39dff'
+          : hit ? CYAN : '#5a6b7a';
+    const ringIntensity = kind === 'checkpoint' && cpOver ? 2.4 : lit ? 2.6 : cpActive ? 2.0 : hit ? 1.3 : 0.25;
+    const statusRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.52, 0.03, 8, 40),
+      new THREE.MeshStandardMaterial({ color: ringColor, emissive: ringColor, emissiveIntensity: ringIntensity, transparent: true, opacity: hit || lit || cpActive || cpOver ? 0.95 : 0.6 }),
+    );
+    statusRing.rotation.x = Math.PI / 2;
+    statusRing.position.y = 1.8;
+    root.add(statusRing);
     if (kind === 'checkpoint') {
       const axis = new THREE.Group();
       const material = new THREE.MeshStandardMaterial({ color: '#cdb3ff', emissive: '#8a63ff', emissiveIntensity: cpActive ? 2.4 : locked ? 0.5 : 0.95, roughness: 0.3, metalness: 0.4 });
@@ -357,7 +348,7 @@ export class CityScene {
     group.clear();
   }
 
-  setBeam(trace: TraceResult): void {
+  setBeam(trace: ReflectionTrace): void {
     this.lastTrace = trace;
     this.clearBeam();
     for (const beam of trace.beams) {
@@ -411,14 +402,6 @@ export class CityScene {
         this.beamGroup.add(endpoint);
       }
     }
-
-    for (const state of trace.targets) {
-      const visual = this.targets.get(state.id);
-      if (!visual) continue;
-      visual.material.emissiveIntensity = state.powered ? 2.2 : 0.6;
-      visual.ringMaterial.emissiveIntensity = state.powered ? 2.0 : 0.7;
-      visual.light.intensity = state.powered ? 9 : 0.9;
-    }
   }
 
   setDistrictProgress(progress: readonly number[], immediate = false): void {
@@ -447,9 +430,7 @@ export class CityScene {
     const count = this.reducedMotion ? 12 : 72;
     const positions = new Float32Array(count * 3);
     const origin = new THREE.Vector3();
-    const burstTargets: readonly GridPoint[] = this.level.targets.length
-      ? this.level.targets.map((target) => target.at)
-      : (this.lastTrace?.targets ?? []).map((target) => target.at);
+    const burstTargets: readonly GridPoint[] = (this.lastTrace?.targets ?? []).map((target) => target.at);
     for (const at of burstTargets) origin.add(gridToWorld(this.level, at, OPTICS_HEIGHT));
     origin.divideScalar(Math.max(1, burstTargets.length));
     this.burstVelocities = [];
@@ -480,17 +461,9 @@ export class CityScene {
     this.moveCamera(new THREE.Vector3(20, 24, 28), new THREE.Vector3(0, 0.4, 0), this.cameraViewSize(30, 40), this.reducedMotion ? 0 : 3.4);
   }
 
-  private createLevelObjects(orientations: readonly MirrorOrientation[]): void {
+  private createLevelObjects(): void {
     this.createSource();
-    if (this.level.reflection) {
-      this.level.obstacles.forEach((point) => this.createObstacle(point));
-      this.createGroundPickPlane();
-      return;
-    }
-    this.level.targets.forEach((target) => this.createTarget(target));
-    this.level.splitters.forEach((splitter) => this.createSplitter(splitter.at, splitter.id));
-    this.level.obstacles.forEach((point) => this.createObstacle(point));
-    this.level.mirrors.forEach((mirror, index) => this.createMirror(index, mirror.at, orientations[index], mirror.id));
+    this.createGroundPickPlane();
   }
 
   private createSource(): void {
@@ -514,126 +487,17 @@ export class CityScene {
     const light = new THREE.PointLight(CYAN, 7, 6, 1.6);
     light.position.y = OPTICS_HEIGHT + 0.25;
     group.add(light);
-    if (this.level.reflection) {
-      const nozzle = new THREE.Group();
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 10), new THREE.MeshStandardMaterial({ color: '#b9fbff', emissive: CYAN, emissiveIntensity: 1.5, roughness: 0.2 }));
-      cone.rotation.x = Math.PI / 2;
-      cone.position.z = 0.44;
-      nozzle.add(cone);
-      nozzle.position.y = OPTICS_HEIGHT;
-      nozzle.rotation.y = SOURCE_ROT_Y[this.level.sourceDirection];
-      group.add(nozzle);
-      this.sourceNozzle = nozzle;
-      group.add(this.createLabel(this.level.reflection.sourceRotatable ? '光塔 · 点击转向' : '光塔 · 方向固定', '#b9fbff', 2.95));
-    } else {
-      group.add(this.createLabel(`光塔 · 能量${this.level.sourceEnergy}`, '#b9fbff', 2.95));
-    }
+    const nozzle = new THREE.Group();
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 10), new THREE.MeshStandardMaterial({ color: '#b9fbff', emissive: CYAN, emissiveIntensity: 1.5, roughness: 0.2 }));
+    cone.rotation.x = Math.PI / 2;
+    cone.position.z = 0.44;
+    nozzle.add(cone);
+    nozzle.position.y = OPTICS_HEIGHT;
+    nozzle.rotation.y = SOURCE_ROT_Y[this.level.sourceDirection];
+    group.add(nozzle);
+    this.sourceNozzle = nozzle;
+    group.add(this.createLabel(this.level.reflection.sourceRotatable ? '光塔 · 点击转向' : '光塔 · 方向固定', '#b9fbff', 2.95));
     this.levelGroup.add(group);
-  }
-
-  private createTarget(target: TargetConfig): void {
-    const position = gridToWorld(this.level, target.at);
-    const group = new THREE.Group();
-    group.position.copy(position);
-    this.addRoofBase(group, '#423a35');
-    const material = new THREE.MeshStandardMaterial({ color: '#ffdda1', emissive: '#ffb856', emissiveIntensity: 0.6, roughness: 0.2, metalness: 0.18 });
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.24, 0), material);
-    core.position.y = OPTICS_HEIGHT;
-    group.add(core);
-    const ringMaterial = new THREE.MeshStandardMaterial({ color: '#ffdb9d', emissive: '#ffba55', emissiveIntensity: 0.7, metalness: 0.55, roughness: 0.25 });
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.027, 8, 40), ringMaterial);
-    ring.position.y = OPTICS_HEIGHT;
-    ring.rotation.x = Math.PI / 2;
-    group.add(ring);
-    const lowerRing = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 8, 32), ringMaterial);
-    lowerRing.position.y = 1.92;
-    lowerRing.rotation.x = Math.PI / 2;
-    group.add(lowerRing);
-    const light = new THREE.PointLight(GOLD, 0.9, 5.5, 1.7);
-    light.position.y = OPTICS_HEIGHT + 0.25;
-    group.add(light);
-    group.add(this.createLabel(`${target.id} · 需${target.required}`, '#ffdaa0', 3.02));
-    this.levelGroup.add(group);
-    this.targets.set(target.id, { material, ringMaterial, light });
-  }
-
-  private createSplitter(at: readonly [number, number], id: string): void {
-    const root = new THREE.Group();
-    root.position.copy(gridToWorld(this.level, at));
-    this.addRoofBase(root, '#1c3a30');
-    const material = new THREE.MeshStandardMaterial({ color: '#d6ffe9', emissive: MINT, emissiveIntensity: 1.3, roughness: 0.18, metalness: 0.3 });
-    const prism = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.46, 3), material);
-    prism.position.y = OPTICS_HEIGHT;
-    prism.rotation.y = Math.PI / 6;
-    root.add(prism);
-    const ringMaterial = new THREE.MeshStandardMaterial({ color: '#9ff0c8', emissive: MINT, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.3 });
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.025, 8, 36), ringMaterial);
-    ring.position.y = 1.78;
-    ring.rotation.x = Math.PI / 2;
-    root.add(ring);
-    const light = new THREE.PointLight(MINT, 3.2, 4.5, 1.7);
-    light.position.y = OPTICS_HEIGHT + 0.2;
-    root.add(light);
-    root.add(this.createLabel(`分光器 ${id}`, '#c7ffe2', 3.05));
-    this.levelGroup.add(root);
-  }
-
-  private createMirror(index: number, at: readonly [number, number], orientation: MirrorOrientation, id: string): void {
-    const root = new THREE.Group();
-    root.position.copy(gridToWorld(this.level, at));
-    this.addRoofBase(root, '#173849');
-    const rotor = new THREE.Group();
-    rotor.rotation.y = orientation === '/' ? Math.PI / 4 : -Math.PI / 4;
-    root.add(rotor);
-
-    const frame = new THREE.Mesh(new RoundedBoxGeometry(1.02, 0.9, 0.09, 3, 0.06), new THREE.MeshStandardMaterial({
-      color: '#315a6b', metalness: 0.85, roughness: 0.2, emissive: '#176477', emissiveIntensity: 0.35,
-    }));
-    frame.position.y = OPTICS_HEIGHT;
-    rotor.add(frame);
-    const panel = new THREE.Mesh(new RoundedBoxGeometry(0.9, 0.78, 0.035, 3, 0.04), new THREE.MeshPhysicalMaterial({
-      color: '#c8f6ff', map: createMirrorTexture(), metalness: 0.68, roughness: 0.12,
-      clearcoat: 1, clearcoatRoughness: 0.08, emissive: '#3da6b7', emissiveIntensity: 0.35,
-    }));
-    panel.position.set(0, OPTICS_HEIGHT, 0.055);
-    rotor.add(panel);
-    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 0.38, 10), new THREE.MeshStandardMaterial({ color: '#8ab6c2', metalness: 0.9, roughness: 0.2 }));
-    stand.position.y = 1.92;
-    root.add(stand);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.54, 0.028, 8, 36), new THREE.MeshStandardMaterial({
-      color: '#62c9d8', emissive: CYAN, emissiveIntensity: 0.65, transparent: true, opacity: 0.8,
-    }));
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 1.78;
-    root.add(ring);
-    root.add(this.createLabel(`镜面 ${id}`, '#d4fbff', 3.05));
-
-    const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.69, 0.69, 1.75, 12), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
-    hit.position.y = 2.15;
-    hit.userData.mirrorIndex = index;
-    root.add(hit);
-    this.hitMeshes.push(hit);
-    this.mirrors.set(index, { rotor, ring, targetRotation: rotor.rotation.y });
-    this.levelGroup.add(root);
-  }
-
-  private createObstacle(at: readonly [number, number]): void {
-    const root = new THREE.Group();
-    root.position.copy(gridToWorld(this.level, at));
-    const body = new THREE.Mesh(new RoundedBoxGeometry(0.91, 2.65, 0.91, 2, 0.06), new THREE.MeshStandardMaterial({ color: '#28303b', roughness: 0.55, metalness: 0.3 }));
-    body.position.y = 1.49;
-    body.castShadow = true;
-    root.add(body);
-    const band = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.19, 0.94), new THREE.MeshStandardMaterial({ color: '#a06b39', emissive: '#c2682f', emissiveIntensity: 0.3, roughness: 0.4 }));
-    band.position.y = OPTICS_HEIGHT;
-    root.add(band);
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 0.22, 8), new THREE.MeshStandardMaterial({ color: '#111c28', metalness: 0.7, roughness: 0.3 }));
-    cap.position.y = 2.92;
-    root.add(cap);
-    const warning = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), new THREE.MeshBasicMaterial({ color: '#ff8c5c' }));
-    warning.position.y = 3.07;
-    root.add(warning);
-    this.levelGroup.add(root);
   }
 
   private addRoofBase(group: THREE.Group, color: string): void {
@@ -689,13 +553,8 @@ export class CityScene {
     canvas.addEventListener('pointerup', (event) => {
       canvas.classList.remove('is-dragging');
       if (this.pointerDown && !this.dragged && this.interactive) {
-        if (this.level.reflection) {
-          const cell = this.pickCell(event);
-          if (cell) this.onCell(cell);
-        } else {
-          const index = this.pickMirror(event);
-          if (index >= 0) this.onCell(this.level.mirrors[index].at);
-        }
+        const cell = this.pickCell(event);
+        if (cell) this.onCell(cell);
       }
       this.pointerDown = false;
       this.dragged = false;
@@ -711,20 +570,7 @@ export class CityScene {
   }
 
   private updateHover(event: PointerEvent): void {
-    if (this.level.reflection) {
-      this.setHovered(this.pickCell(event) ? 0 : -1);
-      return;
-    }
-    this.setHovered(this.pickMirror(event));
-  }
-
-  private pickMirror(event: PointerEvent): number {
-    const bounds = this.renderer.domElement.getBoundingClientRect();
-    this.pointer.set((event.clientX - bounds.left) / bounds.width * 2 - 1, -(event.clientY - bounds.top) / bounds.height * 2 + 1);
-    this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = this.raycaster.intersectObjects(this.hitMeshes, false)[0];
-    const value = hit?.object.userData.mirrorIndex;
-    return typeof value === 'number' ? value : -1;
+    this.setHovered(this.pickCell(event) ? 0 : -1);
   }
 
   private pickCell(event: PointerEvent): GridPoint | null {
@@ -735,16 +581,11 @@ export class CityScene {
     const bounds = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set((clientX - bounds.left) / bounds.width * 2 - 1, -(clientY - bounds.top) / bounds.height * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    // Reflection 关卡：只用与 projectCellToScreen 同高度的平面拾取，保证“所见格=所点格”。
+    // 只用与 projectCellToScreen 同高度的平面拾取，保证“所见格=所点格”。
     // 器件拾取柱在斜视角下会与邻格射线相切，故不使用。
-    if (this.level.reflection) {
-      if (!this.groundPlane) return null;
-      const planeHit = this.raycaster.intersectObject(this.groundPlane, false)[0];
-      return planeHit ? this.worldToGrid(planeHit.point) : null;
-    }
-    const hit = this.raycaster.intersectObjects(this.hitMeshes, false)[0];
-    const value = hit?.object.userData.mirrorIndex;
-    return typeof value === 'number' ? (this.level.mirrors[value].at as GridPoint) : null;
+    if (!this.groundPlane) return null;
+    const planeHit = this.raycaster.intersectObject(this.groundPlane, false)[0];
+    return planeHit ? this.worldToGrid(planeHit.point) : null;
   }
 
   private setHovered(index: number): void {
@@ -840,13 +681,6 @@ export class CityScene {
     }
     this.controls.update();
 
-    this.mirrors.forEach((mirror, index) => {
-      mirror.rotor.rotation.y = THREE.MathUtils.damp(mirror.rotor.rotation.y, mirror.targetRotation, 13, delta);
-      const hovered = index === this.hovered && this.interactive;
-      mirror.ring.material.emissiveIntensity = THREE.MathUtils.damp(mirror.ring.material.emissiveIntensity, hovered ? 3.2 : 0.65, 10, delta);
-      mirror.ring.scale.setScalar(THREE.MathUtils.damp(mirror.ring.scale.x, hovered ? 1.16 : 1, 10, delta));
-    });
-
     for (let index = 0; index < 4; index += 1) {
       this.lightLevels[index] = THREE.MathUtils.damp(this.lightLevels[index], this.lightTargets[index], 1.65, delta);
       const level = this.lightLevels[index];
@@ -921,9 +755,6 @@ export class CityScene {
   }
 
   private clearLevel(): void {
-    this.hitMeshes.length = 0;
-    this.mirrors.clear();
-    this.targets.clear();
     this.disposeGroup(this.pieceGroup);
     this.disposeGroup(this.zoneGroup);
     this.groundPlane = undefined;

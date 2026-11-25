@@ -92,10 +92,7 @@ export function createCity(): CityVisual {
     let size = 7;
     for (const level of levelsHere) {
       size = level.size;
-      level.mirrors.forEach((mirror) => occupied.add(mirror.at.join(',')));
-      level.splitters.forEach((splitter) => occupied.add(splitter.at.join(',')));
-      level.obstacles.forEach((point) => occupied.add(point.join(',')));
-      level.targets.forEach((target) => occupied.add(target.at.join(',')));
+      level.reflection.pieces.forEach((piece) => occupied.add(piece.at.join(',')));
       occupied.add(level.source.join(','));
     }
     return createDistrict(center, index, occupied, size, bodyMaterials, roofMaterial, darkMetal, pavement);

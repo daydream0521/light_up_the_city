@@ -82,10 +82,9 @@ export function inventoryLeft(level: LevelConfig, state: ReflectionGameState): R
   return left;
 }
 
-function buildBoard(level: LevelConfig, state: ReflectionGameState): Map<string, BoardEntry> {
-  const reflection = level.reflection!;
+export function buildBoard(level: LevelConfig, state: ReflectionGameState): Map<string, BoardEntry> {
+  const reflection = level.reflection;
   const board = new Map<string, BoardEntry>();
-  for (const obstacle of level.obstacles) board.set(key(obstacle), { kind: 'block', state: 0, id: 'block', device: false });
   board.set(key(level.source), { kind: 'laser', state: 0, id: 'laser', device: false });
   reflection.pieces.forEach((piece, index) => {
     board.set(key(piece.at), { kind: piece.kind, state: state.pieceStates[index], id: piece.id, device: true });
