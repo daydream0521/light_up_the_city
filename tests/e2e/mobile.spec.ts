@@ -26,6 +26,8 @@ async function advance(page: Page, expectedName: string): Promise<void> {
   const next = page.locator('[data-action="next"]');
   if (await next.isVisible()) await next.tap().catch(() => undefined);
   await expect(page.locator('#level-name')).toHaveText(expectedName);
+  const brief = page.locator('[data-action="brief-ok"]');
+  if (await brief.isVisible()) await brief.tap();
 }
 
 test('mobile touch plays classic and Reflection placement levels', async ({ page }) => {

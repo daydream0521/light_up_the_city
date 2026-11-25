@@ -23,6 +23,7 @@ const icons = {
   sound: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Zm4 4a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>',
   bolt: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>',
+  help: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.3-.9.8-.9 1.5v.4"/><path d="M12 16.6h.01"/></svg>',
 };
 
 const RULES_HINT = '反射 −1 能量 · 分光器平分能量 · 达到所需能量即点亮';
@@ -55,6 +56,7 @@ export class GameUI {
           </div>
           <nav class="level-progress" aria-label="街区进度"><ol id="level-list"></ol></nav>
           <div class="header-actions">
+            <button class="icon-button" data-action="brief" aria-label="本关玩法说明" title="本关玩法说明" hidden>${icons.help}<span>说明</span></button>
             <button class="icon-button" data-action="reset" aria-label="重置当前关卡" title="重置当前关卡（R）">${icons.reset}<span>重置</span></button>
             <button class="icon-button" data-action="mute" aria-label="开启声音" aria-pressed="true" title="切换声音（M）">${icons.muted}<span>声音</span></button>
           </div>
@@ -110,6 +112,15 @@ export class GameUI {
           <button class="primary-button" data-action="next"><span id="next-label">前往下一街区</span>${icons.arrow}</button>
         </div>
 
+        <div id="level-brief" class="level-brief" hidden>
+          <div class="brief-card" role="dialog" aria-label="本关玩法说明">
+            <p class="brief-kicker" id="brief-kicker"></p>
+            <h2 id="brief-title"></h2>
+            <div id="brief-body" class="brief-body"></div>
+            <button class="primary-button" data-action="brief-ok"><span>开始布光</span>${icons.arrow}</button>
+          </div>
+        </div>
+
         <section id="finale" class="finale-screen screen-layer" hidden>
           <div class="finale-copy">
             <p class="finale-count">${LEVELS.length} / ${LEVELS.length} 街区已点亮</p>
@@ -148,10 +159,13 @@ export class GameUI {
         case 'mute': this.callbacks.onToggleMute(); break;
         case 'next': this.callbacks.onNext(); break;
         case 'replay': this.callbacks.onReplay(); break;
+        case 'brief': this.openBrief(); break;
+        case 'brief-ok': this.closeBrief(); break;
       }
     });
 
     window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { this.closeBrief(); return; }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key.toLowerCase() === 'r') this.callbacks.onReset();
       if (event.key.toLowerCase() === 'm') this.callbacks.onToggleMute();
@@ -172,6 +186,8 @@ export class GameUI {
     this.hud.hidden = true;
     this.finale.hidden = true;
     this.toast.hidden = true;
+    rootQuery('#level-brief').hidden = true;
+    rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = true;
     const continuing = save.completed.length > 0 && save.completed.length < LEVELS.length;
     rootQuery('#start-label').textContent = continuing ? '继续点亮' : save.completed.length === LEVELS.length ? '俯瞰夜城' : '开始点亮';
     rootQuery('#save-note').textContent = continuing ? `已为你保留 ${save.completed.length} 段街角的灯光` : '';
@@ -226,6 +242,8 @@ export class GameUI {
     }
     this.renderProgress(level.id, completed, false, best);
     this.announce(`第 ${level.id + 1} 关，${level.name}。${level.subtitle}`);
+    rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = !isReflection;
+    if (isReflection) this.openBrief(); else rootQuery('#level-brief').hidden = true;
   }
 
   updateMirrors(orientations: readonly MirrorOrientation[]): void {
@@ -258,7 +276,8 @@ export class GameUI {
     rootQuery('#cp-chip').hidden = trace.checkpointsTotal === 0;
     rootQuery('#cp-count').textContent = `${trace.checkpointsPassed}/${trace.checkpointsTotal}`;
     rootQuery('#unhit-count').textContent = String(trace.unhitPieces.length);
-    rootQuery('#play-hint').hidden = true;
+    // 教学关（第 3–4 关）保留操作提示，挑战关首次操作后收起。
+    if (this.currentLevel >= 4) rootQuery('#play-hint').hidden = true;
     this.shell.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => {
       const kind = button.dataset.tool as PieceKind | 'erase';
       if (kind === 'erase') {
@@ -293,6 +312,8 @@ export class GameUI {
     this.toast.hidden = true;
     this.intro.hidden = true;
     this.finale.hidden = false;
+    rootQuery('#level-brief').hidden = true;
+    rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = true;
     const totalStars = Object.values(save.best).reduce((sum, score) => sum + score.stars, 0);
     rootQuery('#finale-stars').textContent = `收集 ${totalStars} / ${LEVELS.length * 3} ★ · 点击顶部街区可重玩任意关卡`;
     this.renderProgress(LEVELS.length - 1, LEVELS.map((level) => level.id), false, save.best);
@@ -308,6 +329,58 @@ export class GameUI {
 
   announce(message: string): void {
     this.live.textContent = message;
+  }
+
+  private static readonly DEVICE_TEXT: Record<PieceKind, string> = {
+    single: '<b>背灯镜</b>：单面镜。光击中金色背灯一面会被吸收并<b>点亮</b>；从镜面两侧入射会被反射；从剩下一个方向入射被吸收但不点亮。点击可四向旋转。',
+    splitter: '<b>分光镜</b>：一束变两束——既像镜面一样把光反射 90°，又让原方向的光直行穿过。点击翻转朝向。',
+    mirror: '<b>镜面</b>：把光整体折转 90°，点击在 “/” 与 “\\” 两个朝向间翻转。',
+    checkpoint: '<b>闸门</b>：不挡光，但光只有沿它的朝向穿过才计一次；整张光网的穿过总次数必须<b>恰好</b>等于目标次数——多穿一次同样失败。',
+  };
+
+  private openBrief(): void {
+    const level = LEVELS[this.currentLevel];
+    if (!level?.reflection) return;
+    const reflection = level.reflection;
+    const inventory = new Map(reflection.inventory.map((item) => [item.kind, item.count]));
+    const inventoryTotal = reflection.inventory.reduce((sum, item) => sum + item.count, 0);
+    const singleTotal = reflection.pieces.filter((piece) => piece.kind === 'single').length + (inventory.get('single') ?? 0);
+    const deviceTotal = reflection.pieces.length + inventoryTotal;
+    const checkpoints = reflection.pieces.filter((piece) => piece.kind === 'checkpoint');
+    const checkpointTotal = checkpoints.length + (inventory.get('checkpoint') ?? 0);
+    const axisName = (state: number): string => (state === 0 ? '南北' : '东西');
+
+    const conditions: string[] = [
+      `把库存里的 <b>${inventoryTotal}</b> 件器件全部放上屋顶，一件不剩；`,
+      `场上 <b>${deviceTotal}</b> 件器件（含你放置的）全部被光经过——右上角「未照到」必须为 <b>0</b>；`,
+      `<b>${singleTotal}</b> 盏背灯中至少点亮 <b>${reflection.lightTargets}</b> 盏；`,
+    ];
+    if (checkpointTotal > 0) {
+      const locked = checkpoints.filter((piece) => piece.locked);
+      const free = checkpoints.filter((piece) => !piece.locked);
+      const parts: string[] = [];
+      if (locked.length) parts.push(locked.map((piece) => `已锁定为${axisName(piece.state)}向`).join('、'));
+      if (free.length) parts.push('可点击切换南北/东西向');
+      if (inventory.get('checkpoint')) parts.push('库存中的闸门也必须放上并被穿过');
+      conditions.push(`闸门被光<b>恰好穿过 ${checkpointTotal} 次</b>（${parts.join('；')}）。`);
+    }
+    if (reflection.sourceRotatable) conditions.push('光塔可以点击转向，别忘记它的四个朝向。');
+
+    const kinds: PieceKind[] = (['single', 'splitter', 'mirror', 'checkpoint'] as PieceKind[])
+      .filter((kind) => reflection.pieces.some((piece) => piece.kind === kind) || (inventory.get(kind) ?? 0) > 0);
+
+    rootQuery('#brief-kicker').textContent = `第 ${level.id + 1} 关 · ${level.chapter}`;
+    rootQuery('#brief-title').textContent = `${level.name}：怎样才算通关`;
+    rootQuery('#brief-body').innerHTML = `
+      <ul class="brief-list">${conditions.map((condition) => `<li>${condition}</li>`).join('')}</ul>
+      <div class="brief-devices">${kinds.map((kind) => `<p>${GameUI.DEVICE_TEXT[kind]}</p>`).join('')}</div>
+      <p class="brief-controls">操作：点击底部「库存器件」选中一种 → 点击发亮的屋顶放下；点击已放置或预置的器件 = 旋转/翻转（带灰色锁环的器件不可调整）；点「取回」再点你放置的器件可收回库存。</p>`;
+    rootQuery('#level-brief').hidden = false;
+    rootQuery<HTMLButtonElement>('[data-action="brief-ok"]').focus({ preventScroll: true });
+  }
+
+  private closeBrief(): void {
+    rootQuery('#level-brief').hidden = true;
   }
 
   fatal(message: string): void {

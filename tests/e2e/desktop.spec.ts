@@ -60,6 +60,11 @@ async function advance(page: Page, expectedName?: string): Promise<void> {
   if (expectedName) await expect(page.locator('#level-name')).toHaveText(expectedName);
 }
 
+async function dismissBrief(page: Page): Promise<void> {
+  const brief = page.locator('[data-action="brief-ok"]');
+  if (await brief.isVisible()) await brief.click();
+}
+
 test('complete the six-level campaign: classic tutorials then Reflection ports', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -95,11 +100,24 @@ test('complete the six-level campaign: classic tutorials then Reflection ports',
   await solveClassic(page, LEVELS[1]);
   await advance(page, '布光行囊');
 
-  // 第 3 关：Reflection 移植（放置教学）。持久化检查后再解。
+  // 第 3 关：Reflection 移植（放置教学）。开场简报介绍通关条件与器件。
+  await expect(page.locator('#level-brief')).toBeVisible();
+  await expect(page.locator('#brief-title')).toContainText('怎样才算通关');
+  await expect(page.locator('#brief-body')).toContainText('背灯镜');
+  await page.locator('[data-action="brief-ok"]').click();
+  await expect(page.locator('#level-brief')).toBeHidden();
+  // 说明按钮可随时重开简报
+  await page.locator('[data-action="brief"]').click();
+  await expect(page.locator('#level-brief')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#level-brief')).toBeHidden();
+
+  // 持久化检查后再解。
   await page.reload();
   await expect(page.getByRole('button', { name: '继续点亮' })).toBeVisible();
   await page.getByRole('button', { name: '继续点亮' }).click();
   await expect(page.locator('#level-name')).toHaveText('布光行囊');
+  await page.locator('[data-action="brief-ok"]').click();
   await expect(page.locator('#tool-dock')).toBeVisible();
   await expect(page.locator('#mirror-dock')).toBeHidden();
   await expect(page.locator('#light-count')).toHaveText('0/1');
@@ -115,6 +133,7 @@ test('complete the six-level campaign: classic tutorials then Reflection ports',
   await expect(page.locator('#toast-stars .star-on')).toHaveCount(3);
   await expect(page.locator('#toast-score')).toContainText('操作 6 次');
   await advance(page, '闸口分光');
+  await dismissBrief(page);
 
   // 第 4 关：先验证放置/取回交互，再按官方解通关。
   await expect(page.locator('#cp-count')).toHaveText('0/1');
@@ -140,6 +159,7 @@ test('complete the six-level campaign: classic tutorials then Reflection ports',
   });
   await expect(page.locator('#cp-count')).toHaveText('1/1');
   await advance(page, '镜街二十');
+  await dismissBrief(page);
 
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
   await page.screenshot({ path: 'test-results/05-level-5-street.png' });
@@ -159,6 +179,7 @@ test('complete the six-level campaign: classic tutorials then Reflection ports',
     ],
   });
   await advance(page, '万家灯火');
+  await dismissBrief(page);
 
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
   await page.screenshot({ path: 'test-results/06-level-6-finale-level.png' });
