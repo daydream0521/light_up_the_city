@@ -1,0 +1,134 @@
+.intro-actions, .work-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+#open-workshop { width: auto; min-height: 52px; padding-inline: 16px; }
+
+.game-shell:is([data-screen="workshop"], [data-screen="editor"], [data-screen="trial"], [data-screen="challenge"]) .level-progress,
+.game-shell:is([data-screen="workshop"], [data-screen="editor"]) [data-action="reset"] { display: none; }
+
+.work-surface {
+  background: rgba(7, 17, 34, .9);
+  border: 1px solid var(--site-border);
+  border-radius: var(--site-radius);
+  backdrop-filter: blur(14px);
+}
+
+#workshop-ui .icon-button { width: auto; padding-inline: 10px; white-space: nowrap; }
+#workshop-ui button:disabled { opacity: .45; cursor: default; }
+#workshop-ui button[aria-pressed="true"] {
+  border-color: var(--site-accent);
+  color: #ddfcff;
+  background: #163849;
+}
+#workshop-ui .primary-button { gap: 10px; min-height: 44px; padding-inline: 16px; }
+#workshop-ui h2 { margin: 0; font: 400 30px "Songti SC", "SimSun", serif; overflow-wrap: anywhere; }
+#workshop-ui h3 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+.work-message { margin: 0; color: #bed4e6; font-size: 12px; line-height: 1.5; }
+
+.work-library {
+  position: absolute;
+  z-index: 5;
+  inset: 90px auto 24px clamp(16px, 5vw, 76px);
+  width: min(520px, calc(100% - 32px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  background: linear-gradient(100deg, rgba(5, 12, 27, .94), rgba(5, 12, 27, .55));
+  border-left: 1px solid rgba(105, 230, 242, .4);
+}
+.work-heading { display: flex; justify-content: space-between; align-items: end; gap: 8px; margin-bottom: 20px; }
+.work-heading p { margin: 0 0 6px; color: var(--site-accent); font-size: 12px; }
+#work-list { display: grid; gap: 10px; margin: 16px 0; }
+.work-entry { padding: 14px; }
+.work-entry p { margin: 6px 0 10px; font-size: 12px; color: var(--site-muted); }
+.work-entry p span { margin-right: 8px; color: #ffcf82; }
+.work-editor-head {
+  position: absolute;
+  z-index: 5;
+  inset: 98px auto auto 30px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(105, 230, 242, .45);
+}
+#work-state { margin: 6px 0 14px; color: #ffcf82; font-size: 12px; }
+.work-settings {
+  position: absolute;
+  z-index: 6;
+  top: 98px;
+  right: 30px;
+  width: 238px;
+  max-height: min(60vh, 410px);
+  overflow: auto;
+  padding: 4px 12px 10px;
+}
+.work-settings summary {
+  padding: 10px 0;
+  cursor: pointer;
+  color: #aaf2f7;
+  font-size: 14px;
+}
+.work-settings:not([open]) { padding-bottom: 4px; }
+.work-settings label, .work-share { display: grid; gap: 4px; color: #bed4e6; font-size: 12px; }
+.work-settings > label { margin: 5px 0 9px; }
+#workshop-ui input, #workshop-ui select {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid var(--site-border);
+  border-radius: 7px;
+  padding: 6px 8px;
+  background: #0b1729;
+  color: var(--site-fg);
+  font: inherit;
+  font-size: 16px;
+}
+.work-settings fieldset { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 0; padding: 7px 0 0; border: 0; }
+.work-settings legend { padding: 0; color: #ffcf82; font-size: 12px; }
+
+.work-controls {
+  position: absolute;
+  z-index: 5;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, calc(100% - 24px));
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+.work-selection { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+.work-selection p { margin: 0; color: #ffcf82; font-size: 13px; }
+.work-selection .work-actions { gap: 5px; }
+.work-palette { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
+.work-commands { display: flex; flex-wrap: wrap; gap: 5px; }
+.work-commands button:last-child { margin-left: auto; }
+.work-play-actions { position: absolute; z-index: 8; right: 30px; top: 73px; justify-content: end; }
+.work-result .work-actions { justify-content: center; }
+.work-result h2 { overflow-wrap: anywhere; }
+.work-link-error { position: absolute; z-index: 6; right: 16px; bottom: 16px; max-width: calc(100% - 32px); padding: 12px; color: #ffd2aa; font-size: 14px; }
+.game-shell:is([data-screen="trial"], [data-screen="challenge"]) :is(.level-copy, .status-panel) { top: 132px; }
+.game-shell:is([data-screen="trial"], [data-screen="challenge"]) #level-name { overflow-wrap: anywhere; }
+
+@media (max-width: 800px) {
+  .work-library { top: 68px; }
+  .work-editor-head { inset: 64px 12px auto; padding-left: 8px; }
+  .work-editor-head .work-actions { margin-top: 6px; }
+  #work-editor-title { font-size: 22px !important; }
+  #work-state { margin: 3px 0 0; }
+  .work-settings { top: 64px; right: 12px; width: 106px; }
+  .work-settings[open] { top: 114px; width: min(266px, calc(100% - 24px)); max-height: 48vh; }
+  .work-controls { bottom: max(10px, env(safe-area-inset-bottom)); padding: 7px; gap: 5px; }
+  .work-palette button { padding-inline: 2px !important; font-size: 12px; }
+  .work-play-actions { top: 65px; right: 12px; }
+  .game-shell:is([data-screen="trial"], [data-screen="challenge"]) .status-panel { top: auto; }
+  .game-shell:is([data-screen="trial"], [data-screen="challenge"]) .level-copy { top: 115px; left: 12px; }
+}
+
+@media (max-height: 580px) and (min-width: 640px) {
+  .work-editor-head, .work-settings { top: 74px; }
+  .work-editor-head .work-actions { max-width: 140px; }
+  .work-controls { bottom: 8px; }
+}

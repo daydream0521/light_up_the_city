@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { clickCell, pickTool } from './board';
+import { advanceCampaign, clickCell, pickTool } from './board';
 
 interface ReflectionPlan {
   sourceClicks?: number;
@@ -10,6 +10,7 @@ interface ReflectionPlan {
 }
 
 async function solveReflection(page: Page, plan: ReflectionPlan): Promise<void> {
+  const level = Number(await page.locator('[aria-current="step"]').getAttribute('data-level'));
   if (plan.sourceClicks && plan.sourceAt) {
     for (let index = 0; index < plan.sourceClicks; index += 1) await clickCell(page, plan.sourceAt[0], plan.sourceAt[1]);
   }
@@ -22,11 +23,14 @@ async function solveReflection(page: Page, plan: ReflectionPlan): Promise<void> 
     await clickCell(page, placement.at[0], placement.at[1]);
     for (let index = 0; index < placement.clicks; index += 1) await clickCell(page, placement.at[0], placement.at[1]);
   }
-  await expect(page.locator('#level-toast')).toBeVisible({ timeout: 8000 });
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('light-up-the-city-v3')!).completed))
+    .toContain(level);
 }
 
 async function advance(page: Page, expectedName: string): Promise<void> {
-  await page.locator('[data-action="next"]').click({ force: true });
+  await page.locator('[data-action="next"]').evaluate((button) => {
+    if (!button.closest('[hidden]')) (button as HTMLButtonElement).click();
+  });
   await expect(page.locator('#level-name')).toHaveText(expectedName);
 }
 
@@ -197,9 +201,7 @@ test('complete the nine-level campaign with unified Reflection rules', async ({ 
       { tool: 'splitter', at: [3, 2], clicks: 0 },
     ],
   });
-  await page.locator('[data-action="next"]').click({ force: true });
-  await expect(page.locator('#finale')).toBeVisible();
-  await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
+  await advanceCampaign(page, 8);
   await page.screenshot({ path: 'test-results/10-finale.png' });
 
   await page.getByRole('button', { name: '再玩一次' }).click();

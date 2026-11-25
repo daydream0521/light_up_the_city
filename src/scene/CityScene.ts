@@ -176,27 +176,33 @@ export class CityScene {
 
   showIntro(immediate = false): void {
     this.screen = 'intro';
-    this.interactive = false;
+    this.finaleClearAt = -1;
+    this.clearLevel();
+    this.setInteractive(false);
     this.applyLevelControls();
     this.controls.autoRotate = !this.reducedMotion;
     this.moveCamera(new THREE.Vector3(18, 21, 25), new THREE.Vector3(0, 0.6, 0), this.cameraViewSize(29, 39), immediate ? 0 : 1.8);
   }
 
-  setLevel(index: number, trace: ReflectionTrace, immediate = false, reflectionState: ReflectionGameState): void {
-    this.level = LEVELS[index];
+  setLevel(level: LevelConfig, trace: ReflectionTrace, immediate: boolean, reflectionState: ReflectionGameState): void {
     this.screen = 'level';
     this.finaleClearAt = -1;
     this.interactive = true;
     this.controls.autoRotate = false;
     this.applyLevelControls();
-    this.clearLevel();
-    this.createLevelObjects();
-    this.setReflection(reflectionState, trace);
-    this.setToolZones([]);
+    this.setBoard(level, trace, reflectionState);
     // gridToWorld 以 7 格棋盘为基准居中（x-3）；非 7 格关卡需把镜头对准实际棋盘中心。
     const boardOffset = ((this.level.size - 1) / 2 - 3) * GRID_SIZE;
     const center = new THREE.Vector3(this.level.districtCenter[0] + boardOffset, 0.75, this.level.districtCenter[1] + boardOffset);
     this.moveCamera(center.clone().add(new THREE.Vector3(9.6, 12.2, 13.4)), center, this.cameraViewSize(13.6, 17.2), immediate ? 0 : 1.55);
+  }
+
+  setBoard(level: LevelConfig, trace: ReflectionTrace, state: ReflectionGameState): void {
+    this.level = level;
+    this.clearLevel();
+    this.createSource();
+    this.createGroundPickPlane();
+    this.setReflection(state, trace);
   }
 
   setReflection(state: ReflectionGameState, trace: ReflectionTrace): void {
@@ -220,15 +226,22 @@ export class CityScene {
     this.setBeam(trace);
   }
 
-  setToolZones(cells: readonly GridPoint[]): void {
+  setToolZones(cells: readonly GridPoint[], selected: GridPoint | null = null): void {
     this.disposeGroup(this.zoneGroup);
-    if (!cells.length) return;
-    const material = new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.13, blending: THREE.AdditiveBlending, depthWrite: false });
+    if (!cells.length && !selected) return;
+    const material = cells.length ? new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.13, blending: THREE.AdditiveBlending, depthWrite: false }) : undefined;
     for (const cell of cells) {
       const marker = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.92), material);
       marker.rotation.x = -Math.PI / 2;
       marker.position.copy(gridToWorld(this.level, cell, 1.8));
       this.zoneGroup.add(marker);
+    }
+    if (selected) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.47, 0.52, 32),
+        new THREE.MeshBasicMaterial({ color: '#ffd58b', depthWrite: false }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.copy(gridToWorld(this.level, selected, 1.86));
+      this.zoneGroup.add(ring);
     }
   }
 
@@ -324,6 +337,7 @@ export class CityScene {
     const half = Math.floor((this.level.size - 1) / 2);
     this.groundPlane.position.copy(gridToWorld(this.level, [half, half], PICK_HEIGHT));
     this.levelGroup.add(this.groundPlane);
+    this.groundPlane.updateWorldMatrix(true, false);
   }
 
   private worldToGrid(point: THREE.Vector3): GridPoint | null {
@@ -500,11 +514,6 @@ export class CityScene {
     this.controls.maxPolarAngle = Math.PI * 0.39;
   }
 
-  private createLevelObjects(): void {
-    this.createSource();
-    this.createGroundPickPlane();
-  }
-
   private createSource(): void {
     const position = gridToWorld(this.level, this.level.source);
     const group = new THREE.Group();
@@ -535,7 +544,7 @@ export class CityScene {
     nozzle.rotation.y = SOURCE_ROT_Y[this.level.sourceDirection];
     group.add(nozzle);
     this.sourceNozzle = nozzle;
-    group.add(this.createLabel(this.level.reflection.sourceRotatable ? '光塔 · 点击转向' : '光塔 · 方向固定', '#b9fbff', 2.95));
+    group.add(this.createLabel(this.level.reflection.sourceRotatable ? '光塔 · 可转向' : '光塔 · 方向固定', '#b9fbff', 2.95));
     this.levelGroup.add(group);
   }
 
@@ -642,6 +651,7 @@ export class CityScene {
       this.viewSize = size;
       this.updateProjection();
       this.controls.update();
+      this.camera.updateMatrixWorld();
       this.cameraTween = undefined;
       this.controls.enabled = true;
       this.controls.autoRotate = this.screen !== 'level' && !this.reducedMotion;

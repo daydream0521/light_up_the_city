@@ -13,6 +13,7 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: Number(process.env.E2E_RENDER_SCALE ?? 1),
     headless: true,
     launchOptions: {
       executablePath: process.env.CHROME_PATH ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe',

@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import type { LevelConfig } from '../../src/game/levels';
+import { LEVELS, type LevelConfig } from '../../src/game/levels';
 import { SOLUTIONS } from '../campaign-solutions';
 
 export async function clickCell(page: Page, x: number, z: number): Promise<void> {
@@ -17,8 +17,8 @@ export async function pickTool(page: Page, tool: string): Promise<void> {
   await expect(page.locator(`[data-tool="${tool}"]`)).toHaveAttribute('aria-pressed', 'true');
 }
 
-
 export async function solveLevel(page: Page, level: LevelConfig): Promise<void> {
+  await expect(page.locator('#level-name')).toHaveText(level.name);
   const solution = SOLUTIONS[level.id];
   async function rotate(at: readonly [number, number], from: number, to: number, directions: number) {
     const clicks = (to - from + directions) % directions;
@@ -33,5 +33,19 @@ export async function solveLevel(page: Page, level: LevelConfig): Promise<void> 
     await clickCell(page, piece.x, piece.z);
     await rotate([piece.x, piece.z], 0, piece.state, piece.kind === 'single' ? 4 : 2);
   }
-  await expect(page.locator('#level-toast')).toBeVisible();
+  // The campaign advances on a timer, so fast and slow renderers may see different toast durations.
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('light-up-the-city-v3')!).completed))
+    .toContain(level.id);
+}
+
+export async function advanceCampaign(page: Page, solved: number): Promise<void> {
+  await page.locator('[data-action="next"]').evaluate((button) => {
+    if (!button.closest('[hidden]')) (button as HTMLButtonElement).click();
+  });
+  if (solved + 1 < LEVELS.length) {
+    await expect(page.locator('#level-name')).toHaveText(LEVELS[solved + 1].name);
+  } else {
+    await expect(page.locator('#finale')).toBeVisible();
+  }
+  await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
 }

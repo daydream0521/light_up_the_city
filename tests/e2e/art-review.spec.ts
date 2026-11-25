@@ -1,13 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { LEVELS } from '../../src/game/levels';
-
-import { solveLevel } from './board';
-
-async function advance(page: Page): Promise<void> {
-  await page.locator('[data-action="next"]').click({ force: true });
-  await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false', { timeout: 20_000 });
-  await page.waitForTimeout(900);
-}
+import { advanceCampaign, solveLevel } from './board';
 
 async function measureFps(page: Page): Promise<number> {
   return page.evaluate(() => new Promise<number>((resolve) => {
@@ -45,31 +38,31 @@ test('art review: fixed viewpoints across districts, canal and revival states', 
   await page.screenshot({ path: 'test-results/art-03-district0-residential-dark.png' });
 
   await solveLevel(page, LEVELS[0]);
-  await advance(page);
+  await advanceCampaign(page, 0);
   await solveLevel(page, LEVELS[1]);
-  await advance(page);
+  await advanceCampaign(page, 1);
   await page.screenshot({ path: 'test-results/art-04-district1-commercial.png' });
   const levelFps = await measureFps(page);
   console.log(`[art] level fps ~${levelFps.toFixed(1)}`);
 
   await solveLevel(page, LEVELS[2]);
-  await advance(page);
+  await advanceCampaign(page, 2);
   await solveLevel(page, LEVELS[3]);
-  await advance(page);
+  await advanceCampaign(page, 3);
   await page.screenshot({ path: 'test-results/art-05-district2-industrial.png' });
 
   await solveLevel(page, LEVELS[4]);
-  await advance(page);
+  await advanceCampaign(page, 4);
   await solveLevel(page, LEVELS[5]);
-  await advance(page);
+  await advanceCampaign(page, 5);
   await page.screenshot({ path: 'test-results/art-06-district3-civic.png' });
 
   await solveLevel(page, LEVELS[6]);
-  await advance(page);
+  await advanceCampaign(page, 6);
   await solveLevel(page, LEVELS[7]);
-  await advance(page);
+  await advanceCampaign(page, 7);
   await solveLevel(page, LEVELS[8]);
-  await advance(page);
+  await advanceCampaign(page, 8);
   await page.waitForTimeout(4500);
   await page.screenshot({ path: 'test-results/art-07-finale.png' });
   const finaleFps = await measureFps(page);

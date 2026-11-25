@@ -29,7 +29,7 @@ const icons = {
   eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12c1-2.5 5-7 10-7s9 4.5 10 7c-1 2.5-5 7-10 7S3 14.5 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
 };
 
-const TOOL_LABELS: Record<PieceKind, string> = { mirror: '镜面', splitter: '分光镜', single: '背灯镜', checkpoint: '闸门' };
+export const TOOL_LABELS: Record<PieceKind, string> = { mirror: '镜面', splitter: '分光镜', single: '背灯镜', checkpoint: '闸门' };
 const TOOL_GLYPHS: Record<PieceKind, string> = { mirror: '镜', splitter: '分', single: '灯', checkpoint: '闸' };
 
 export class GameUI {
@@ -40,7 +40,7 @@ export class GameUI {
   private readonly finale: HTMLElement;
   private readonly toast: HTMLElement;
   private readonly live: HTMLElement;
-  private currentLevel = 0;
+  private currentLevel: LevelConfig = LEVELS[0];
 
   constructor(root: HTMLElement, private readonly callbacks: UICallbacks) {
     root.innerHTML = `
@@ -67,7 +67,10 @@ export class GameUI {
             <p class="intro-overline">雨还没有停，城市仍在等待。</p>
             <h1><span>点亮</span><span>夜城</span></h1>
             <p class="intro-description">翻转屋顶的镜面，安放器件、转动光塔，<br>让光束穿过街角，抵达每一盏等待亮起的背灯。</p>
-            <button class="primary-button" data-action="start"><span id="start-label">开始点亮</span>${icons.arrow}</button>
+            <div class="intro-actions">
+              <button class="primary-button" data-action="start"><span id="start-label">开始点亮</span>${icons.arrow}</button>
+              <button class="icon-button" id="open-workshop">造光工坊</button>
+            </div>
             <p id="save-note" class="save-note"></p>
           </div>
           <div class="intro-footnote"><span class="tiny-light"></span>一束光，${LEVELS.length} 段街角，一座城。</div>
@@ -167,6 +170,7 @@ export class GameUI {
     window.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') { this.closeBrief(); return; }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.target instanceof HTMLElement && event.target.matches('input, select, textarea')) return;
       if (event.key.toLowerCase() === 'r') this.callbacks.onReset();
       if (event.key.toLowerCase() === 'm') this.callbacks.onToggleMute();
     });
@@ -194,16 +198,26 @@ export class GameUI {
     this.renderProgress(save.currentLevel, save.completed, true, save.best);
   }
 
-  showLevel(level: LevelConfig, completed: readonly number[], best: Record<number, BestScore>, hintText: string | null): void {
-    this.currentLevel = level.id;
-    this.shell.dataset.screen = 'playing';
+  showWorkshop(editing: boolean): void {
+    this.shell.dataset.screen = editing ? 'editor' : 'workshop';
+    this.intro.hidden = true;
+    this.hud.hidden = true;
+    this.finale.hidden = true;
+    this.toast.hidden = true;
+    this.closeBrief();
+    rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = true;
+  }
+
+  showLevel(level: LevelConfig, completed: readonly number[], best: Record<number, BestScore>, hintText: string | null, mode?: 'trial' | 'challenge'): void {
+    this.currentLevel = level;
+    this.shell.dataset.screen = mode ?? 'playing';
     this.intro.hidden = true;
     this.finale.hidden = true;
     this.toast.hidden = true;
     this.hud.hidden = false;
     rootQuery('#level-brief').hidden = true;
     rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = false;
-    rootQuery('#level-number').textContent = `第 ${level.id + 1} 关 / 共 ${LEVELS.length} 关 · ${level.chapter}`;
+    rootQuery('#level-number').textContent = mode === 'trial' ? '编辑器试玩' : mode === 'challenge' ? '玩家关卡挑战' : `第 ${level.id + 1} 关 / 共 ${LEVELS.length} 关 · ${level.chapter}`;
     rootQuery('#level-name').textContent = level.name;
     rootQuery('#level-subtitle').textContent = level.subtitle;
 
@@ -238,8 +252,8 @@ export class GameUI {
           <span class="mirror-id">取</span><span class="mirror-glyph">回</span>
         </button>`;
     }
-    this.renderProgress(level.id, completed, false, best);
-    this.announce(`第 ${level.id + 1} 关，${level.name}。${level.subtitle}`);
+    if (!mode) this.renderProgress(level.id, completed, false, best);
+    this.announce(`${level.name}。${level.subtitle}`);
   }
 
   private conditionRow(id: string, label: string, value: string): string {
@@ -347,8 +361,7 @@ export class GameUI {
   };
 
   private openBrief(): void {
-    const level = LEVELS[this.currentLevel];
-    if (!level) return;
+    const level = this.currentLevel;
     const reflection = level.reflection;
     const inventory = new Map(reflection.inventory.map((item) => [item.kind, item.count]));
     const inventoryTotal = reflection.inventory.reduce((sum, item) => sum + item.count, 0);
@@ -376,7 +389,7 @@ export class GameUI {
     const kinds: PieceKind[] = (['single', 'splitter', 'mirror', 'checkpoint'] as PieceKind[])
       .filter((kind) => reflection.pieces.some((piece) => piece.kind === kind) || (inventory.get(kind) ?? 0) > 0);
 
-    rootQuery('#brief-kicker').textContent = `第 ${level.id + 1} 关 · ${level.chapter}`;
+    rootQuery('#brief-kicker').textContent = level.id < 0 ? level.chapter : `第 ${level.id + 1} 关 · ${level.chapter}`;
     rootQuery('#brief-title').textContent = `${level.name}：怎样才算通关`;
     rootQuery('#brief-body').innerHTML = `
       <ul class="brief-list">${conditions.map((condition) => `<li>${condition}</li>`).join('')}</ul>

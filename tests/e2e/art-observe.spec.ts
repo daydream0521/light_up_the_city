@@ -1,18 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import { LEVELS } from '../../src/game/levels';
-
-import { clickCell, solveLevel } from './board';
-
-async function advance(page: Page): Promise<void> {
-  await page.locator('[data-action="next"]').click({ force: true });
-  await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false', { timeout: 25_000 });
-  await page.waitForTimeout(700);
-}
+import { advanceCampaign, clickCell, solveLevel } from './board';
 
 async function reachFinale(page: Page): Promise<void> {
   for (const level of LEVELS) {
     await solveLevel(page, level);
-    await advance(page);
+    await advanceCampaign(page, level.id);
   }
   await page.waitForTimeout(2200);
 }
@@ -23,7 +16,7 @@ async function drag(page: Page, dx: number, dy: number, button: 'left' | 'right'
   const cy = box!.y + box!.height / 2;
   await page.mouse.move(cx, cy);
   await page.mouse.down({ button });
-  await page.mouse.move(cx + dx, cy + dy, { steps: 12 });
+  await page.mouse.move(cx + dx, cy + dy, { steps: 5 });
   await page.mouse.up({ button });
   await page.waitForTimeout(400);
 }
@@ -62,7 +55,7 @@ test('finale clears devices and free city observation works on desktop', async (
   await page.screenshot({ path: 'test-results/obs-02-topdown.png' });
 
   await drag(page, 0, -260);
-  await zoom(page, 9);
+  await zoom(page, 5);
   await drag(page, 300, 120, 'right');
   await page.waitForTimeout(600);
   await page.screenshot({ path: 'test-results/obs-03-closeup.png' });

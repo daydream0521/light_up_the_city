@@ -1,16 +1,19 @@
 import './styles.css';
+import './workshop.css';
 import { CityAudio } from './game/audio';
-import { LEVELS, type Direction, type GridPoint } from './game/levels';
+import { LEVELS, type Direction, type GridPoint, type LevelConfig } from './game/levels';
 import {
   canPlaceAt, initialReflectionState, inventoryLeft, placementZones, traceReflection,
-  type ReflectionGameState, type ReflectionTrace,
+  type ReflectionGameState,
 } from './game/reflection';
+import { puzzleLevel, readSharedPuzzle, type Puzzle } from './game/workshop';
+import { Workshop } from './ui/Workshop';
 import { rateLevel } from './game/score';
 import { clearProgress, loadSave, writeSave, type SaveData } from './game/storage';
 import { CityScene, districtProgress } from './scene/CityScene';
 import { GameUI, type ToolSelection } from './ui/GameUI';
 
-type GameState = 'intro' | 'playing' | 'levelComplete' | 'finale';
+type GameState = 'intro' | 'workshop' | 'editor' | 'challengeReady' | 'playing' | 'levelComplete' | 'finale';
 
 /** 教学提示：短文案 + 玩家做出对应操作后自动消失（不强制阅读）。 */
 const LEVEL_HINTS: Record<number, { text: string; dismiss: 'piece' | 'place' | 'source' }> = {
@@ -25,7 +28,9 @@ const LEVEL_HINTS: Record<number, { text: string; dismiss: 'piece' | 'place' | '
 let save: SaveData = loadSave();
 let state: GameState = 'intro';
 let currentLevel = save.currentLevel;
-let reflectionState: ReflectionGameState = initialReflectionState(LEVELS[currentLevel]);
+let activeLevel: LevelConfig = LEVELS[currentLevel];
+let customMode: 'trial' | 'challenge' | undefined;
+let reflectionState: ReflectionGameState = initialReflectionState(activeLevel);
 let tool: ToolSelection = null;
 let moves = 0;
 let hintDismiss: 'piece' | 'place' | 'source' | null = null;
@@ -46,20 +51,38 @@ const ui = new GameUI(document.querySelector<HTMLElement>('#app')!, {
 });
 
 let scene: CityScene;
+let workshop: Workshop;
 try {
   scene = new CityScene(ui.container, handleCell);
   scene.setCompletedDistricts(save.completed);
-  scene.setLevel(currentLevel, traceReflection(LEVELS[currentLevel], reflectionState), true, reflectionState);
-  scene.showIntro(true);
+  workshop = new Workshop(document.querySelector<HTMLElement>('.game-shell')!, scene, {
+    showWorkshop: (editing) => {
+      clearTimers();
+      clearSharedHash();
+      customMode = undefined;
+      state = editing ? 'editor' : 'workshop';
+      ui.showWorkshop(editing);
+      if (!editing) scene.showIntro();
+    },
+    play: playCustom,
+    home: showHome,
+    reset: resetLevel,
+    begin: () => { if (state === 'challengeReady') startCustom(); },
+  });
   ui.ready();
   ui.showIntro(save);
   ui.setMuted(save.muted);
+  if (location.hash.startsWith('#level=')) {
+    const puzzle = readSharedPuzzle(location.hash.slice(7));
+    if (puzzle) workshop.setShared(puzzle);
+    else workshop.badLink();
+  }
   (window as unknown as Record<string, unknown>).__qoderTest = {
     projectCell: (x: number, z: number) => scene.projectCellToScreen([x, z]),
     pickCellAt: (clientX: number, clientY: number) => scene.pickCellAt(clientX, clientY),
     getTool: () => tool,
     summary: () => {
-      const level = LEVELS[currentLevel];
+      const level = activeLevel;
       const trace = traceReflection(level, reflectionState);
       return {
         level: currentLevel, won: trace.won, lit: trace.litLights, unhit: trace.unhitPieces.length, cp: trace.checkpointsPassed, moves,
@@ -91,7 +114,7 @@ function loadLevel(index: number, immediate = false): void {
   state = 'playing';
   moves = 0;
   tool = null;
-  const level = LEVELS[index];
+  const level = activeLevel = LEVELS[index];
   const hint = LEVEL_HINTS[index];
   hintDismiss = hint?.dismiss ?? null;
   ui.hideLevelComplete();
@@ -99,10 +122,58 @@ function loadLevel(index: number, immediate = false): void {
   const trace = traceReflection(level, reflectionState);
   ui.showLevel(level, save.completed, save.best, hint?.text ?? null);
   ui.updateReflection(trace, inventoryLeft(level, reflectionState), 0, null, 0);
-  scene.setLevel(index, trace, immediate, reflectionState);
+  scene.setLevel(level, trace, immediate, reflectionState);
   scene.setInteractive(true);
   save.currentLevel = index;
   writeSave(save);
+}
+
+function clearSharedHash(): void {
+  if (location.hash.startsWith('#level=')) history.replaceState(null, '', location.pathname + location.search);
+}
+
+function showHome(): void {
+  clearTimers();
+  clearSharedHash();
+  customMode = undefined;
+  state = 'intro';
+  workshop.hide();
+  scene.showIntro();
+  ui.showIntro(save);
+}
+
+function playCustom(puzzle: Puzzle, mode: 'trial' | 'challenge'): void {
+  clearTimers();
+  customMode = mode;
+  activeLevel = puzzleLevel(structuredClone(puzzle));
+  if (mode === 'trial') {
+    startCustom();
+    return;
+  }
+  resetCustomBoard();
+  state = 'challengeReady';
+  scene.setInteractive(false);
+  workshop.showPlay(mode, 'ready');
+}
+
+function resetCustomBoard(): boolean {
+  moves = 0;
+  tool = null;
+  hintDismiss = null;
+  reflectionState = initialReflectionState(activeLevel);
+  const trace = traceReflection(activeLevel, reflectionState);
+  ui.showLevel(activeLevel, [], {}, null, customMode);
+  ui.updateReflection(trace, inventoryLeft(activeLevel, reflectionState), 0, null, 0);
+  scene.setLevel(activeLevel, trace, true, reflectionState);
+  return trace.won;
+}
+
+function startCustom(): void {
+  if (!customMode) return;
+  const won = resetCustomBoard();
+  state = 'playing';
+  workshop.showPlay(customMode, 'playing');
+  if (won) completeLevel();
 }
 
 function dismissHint(action: 'piece' | 'place' | 'source'): void {
@@ -114,8 +185,9 @@ function dismissHint(action: 'piece' | 'place' | 'source'): void {
 }
 
 function handleCell(at: GridPoint): void {
+  if (state === 'editor') { workshop.handleCell(at); return; }
   if (state !== 'playing' || !scene) return;
-  const level = LEVELS[currentLevel];
+  const level = activeLevel;
   const rs = reflectionState;
   const sameCell = (point: GridPoint): boolean => point[0] === at[0] && point[1] === at[1];
   const placementIndex = rs.placements.findIndex((placement) => sameCell(placement.at));
@@ -180,27 +252,33 @@ function selectTool(next: ToolSelection): void {
 
 function setTool(next: ToolSelection): void {
   tool = next;
-  const level = LEVELS[currentLevel];
+  const level = activeLevel;
   const zones = next && next !== 'erase' ? placementZones(level, reflectionState) : [];
   scene?.setToolZones(zones);
   refreshReflection();
 }
 
 function refreshReflection(): void {
-  const level = LEVELS[currentLevel];
+  const level = activeLevel;
   if (!scene) return;
   const trace = traceReflection(level, reflectionState);
   scene.setReflection(reflectionState, trace);
   ui.updateReflection(trace, inventoryLeft(level, reflectionState), reflectionState.placements.length, tool, moves);
-  if (trace.won && state === 'playing') completeLevel(trace);
+  if (trace.won && state === 'playing') completeLevel();
 }
 
-function completeLevel(trace: ReflectionTrace): void {
-  void trace;
+function completeLevel(): void {
   state = 'levelComplete';
   hintDismiss = null;
   ui.clearHint();
   scene.setInteractive(false);
+  if (customMode) {
+    if (customMode === 'trial') workshop.markVerified();
+    scene.celebrate();
+    audio.success(false);
+    workshop.showPlay(customMode, 'won');
+    return;
+  }
   const rating = rateLevel(LEVELS[currentLevel], moves);
   const previous = save.best[currentLevel];
   if (!previous || rating.moves < previous.moves) {
@@ -221,7 +299,7 @@ function completeLevel(trace: ReflectionTrace): void {
 }
 
 function nextLevel(): void {
-  if (state !== 'levelComplete') return;
+  if (state !== 'levelComplete' || customMode) return;
   clearTimers();
   if (currentLevel === LEVELS.length - 1) {
     state = 'finale';
@@ -234,14 +312,15 @@ function nextLevel(): void {
 
 function resetLevel(): void {
   if (state !== 'playing' && state !== 'levelComplete') return;
-  loadLevel(currentLevel);
+  if (customMode) startCustom();
+  else loadLevel(currentLevel);
   ui.announce('当前关卡已重置。');
   audio.rotate();
 }
 
 function selectLevel(index: number): void {
   if (index < 0 || index > Math.min(save.completed.length, LEVELS.length - 1)) return;
-  if (state === 'intro') return;
+  if (customMode || (state !== 'playing' && state !== 'levelComplete' && state !== 'finale')) return;
   loadLevel(index);
 }
 
