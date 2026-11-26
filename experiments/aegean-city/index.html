@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11272c">
+  <link rel="icon" href="data:,">
+  <title>爱琴余晖 · Aegean Twilight</title>
+</head>
+<body>
+  <main id="view" aria-label="古希腊海港城邦三维场景"></main>
+  <header id="masthead" class="chrome">
+    <h1>爱琴余晖</h1>
+    <p>Aegean Twilight</p>
+  </header>
+  <button id="visibility" type="button" aria-controls="masthead console" aria-expanded="true" title="隐藏界面（H）">隐藏界面</button>
+  <section id="console" class="chrome" aria-label="观赏控制">
+    <nav aria-label="观赏机位">
+      <button type="button" data-view="city" aria-pressed="true">全景</button>
+      <button type="button" data-view="temple" aria-pressed="false">卫城</button>
+      <button type="button" data-view="theatre" aria-pressed="false">剧场</button>
+      <button type="button" data-view="harbour" aria-pressed="false">港湾</button>
+      <button type="button" data-view="overhead" aria-pressed="false">俯瞰</button>
+      <button type="button" id="orbit" aria-pressed="false">环视</button>
+    </nav>
+    <div class="timeline">
+      <button type="button" id="play" aria-pressed="false" aria-label="播放昼夜" title="播放昼夜">▶</button>
+      <div class="scrub">
+        <label for="time" id="phase">黄昏</label>
+        <input id="time" type="range" min="0" max="24" step="0.01" value="18.55">
+      </div>
+      <output id="clock" for="time">18:33</output>
+    </div>
+  </section>
+  <p id="status" role="status">正在生成海港城邦…</p>
+  <script type="module" src="../../src/experiments/aegean-city/main.ts"></script>
+</body>
+</html>
