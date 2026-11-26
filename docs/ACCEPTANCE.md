@@ -158,3 +158,9 @@ Playwright 汇总：3 个 spec 全部通过（1.9m）。
 | 移动端 | 触摸摆放、旋转、试玩、返回编辑和保存通过 |
 
 实拍截图见 [桌面编辑器](screenshots/workshop-editor.png)、[分享关卡通关光路](screenshots/workshop-challenge.png)和[手机编辑器](screenshots/workshop-mobile.png)。
+
+## Phase B.2 本地验证与发布处理器
+
+- Chrome 工坊回归 3 项通过。手机视口复现并验证初始即胜的拦截，保留草稿，调整布局后完成合法试玩。桌面验收保存终态、保留初始设计、修改玩法后移除旧证明，独立浏览器仍能挑战本地分享链接。
+- Chrome 桌面九关回归通过，覆盖续玩、评分、关卡推进、城市终局与重玩。生产构建通过，Vitest 共 28 项通过，覆盖伪造验证标志、非法动作、锁定状态、陈旧证明和公开响应字段。
+- Qoder CLI 1.1.98 的站点列表查询返回 `sites_auth_required`。云数据库读写、重新部署持久化与云端社区待在已登录的测试站点完成。见 [Qoder Sites 接手计划](QODER-PHASE-B2-HANDOFF.md) 和 [手机拦截截图](screenshots/phase-b2-initial-win.png)。
