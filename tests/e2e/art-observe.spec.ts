@@ -3,7 +3,7 @@ import { LEVELS } from '../../src/game/levels';
 import { advanceCampaign, clickCell, solveLevel } from './board';
 
 async function reachFinale(page: Page): Promise<void> {
-  for (const level of LEVELS) {
+  for (const level of LEVELS.slice(0, 9)) {
     await solveLevel(page, level);
     await advanceCampaign(page, level.id);
   }
@@ -82,8 +82,7 @@ test('finale clears devices and free city observation works on desktop', async (
   await expect(page.locator('#move-count')).toHaveText('1');
 
   await page.reload();
-  await expect(page.getByRole('button', { name: '俯瞰夜城' })).toBeVisible();
-  await page.getByRole('button', { name: '俯瞰夜城' }).click();
+  await page.locator('.intro-cities button:first-child').click();
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false', { timeout: 25_000 });
   await page.waitForTimeout(2200);
   await page.screenshot({ path: 'test-results/obs-05-reload-finale.png' });
@@ -107,7 +106,7 @@ test('finale observation basics on mobile', async ({ browser }) => {
   });
   await page.goto('/');
   await expect(page.locator('#loading')).toBeHidden();
-  await page.getByRole('button', { name: '俯瞰夜城' }).tap();
+  await page.locator('.intro-cities button:first-child').tap();
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false', { timeout: 25_000 });
   await page.waitForTimeout(2200);
 

@@ -124,7 +124,7 @@ test('draft recovery, trial verification and self-contained sharing', async ({ p
   await page.getByRole('button', { name: '游戏首页' }).click();
 
   await page.evaluate((key) => localStorage.setItem(key, JSON.stringify({
-    currentLevel: 8, completed: Array.from({ length: 9 }, (_, i) => i), best: {}, muted: true,
+    currentLevel: 24, completed: Array.from({ length: 25 }, (_, i) => i), best: {}, muted: true,
   })), v3Key);
   await page.reload();
   await page.getByRole('button', { name: '俯瞰夜城' }).click();

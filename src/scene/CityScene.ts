@@ -8,6 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { DISTRICT_CENTERS, GRID_SIZE, LEVELS, OPTICS_HEIGHT, type GridPoint, type LevelConfig, type PieceKind } from '../game/levels';
 import type { ReflectionGameState, ReflectionTrace } from '../game/reflection';
 import { createCity, gridToWorld, type CityVisual } from './cityGeometry';
+import { createChapterBoard } from './chapterBoard';
 import { createCityLife, type CityLife } from './cityLife';
 
 interface BeamSegment {
@@ -79,6 +80,8 @@ export class CityScene {
       endpoint: color,
     };
   });
+  private readonly chapterBoards = new Map<1 | 2, ReturnType<typeof createChapterBoard>>();
+  private chapterLighting = [0, 0, 0, 0];
   private level: LevelConfig = LEVELS[0];
   private groundPlane?: THREE.Mesh;
   private sourceNozzle?: THREE.Group;
@@ -174,7 +177,29 @@ export class CityScene {
     this.renderer.setAnimationLoop(() => this.animate());
   }
 
+  setRendering(active: boolean): void {
+    this.clock.getDelta();
+    this.renderer.setAnimationLoop(active ? () => this.animate() : null);
+  }
+
+  setChapterProgress(progress: number[]): void {
+    this.chapterLighting = progress;
+  }
+
+  private showChapterBoard(city?: 1 | 2): void {
+    this.city.group.visible = !city;
+    this.rain.visible = !city;
+    if (city && !this.chapterBoards.has(city)) {
+      const board = createChapterBoard(city);
+      this.chapterBoards.set(city, board);
+      this.scene.add(board.root);
+    }
+    for (const [id, board] of this.chapterBoards) board.root.visible = id === city;
+    (this.scene.background as THREE.Color).set(city === 1 ? '#172330' : city === 2 ? '#081626' : '#050b18');
+  }
+
   showIntro(immediate = false): void {
+    this.showChapterBoard();
     this.screen = 'intro';
     this.finaleClearAt = -1;
     this.clearLevel();
@@ -190,6 +215,7 @@ export class CityScene {
     this.interactive = true;
     this.controls.autoRotate = false;
     this.applyLevelControls();
+    this.showChapterBoard(level.city);
     this.setBoard(level, trace, reflectionState);
     // gridToWorld 以 7 格棋盘为基准居中（x-3）；非 7 格关卡需把镜头对准实际棋盘中心。
     const boardOffset = ((this.level.size - 1) / 2 - 3) * GRID_SIZE;
@@ -474,12 +500,13 @@ export class CityScene {
     this.scene.add(this.burst);
   }
 
-  showFinale(): void {
+  showFinale(full = true): void {
+    this.showChapterBoard();
     this.screen = 'finale';
     this.interactive = false;
     this.controls.autoRotate = !this.reducedMotion;
     this.controls.autoRotateSpeed = 0.1;
-    this.setDistrictProgress([1, 1, 1, 1]);
+    if (full) this.setDistrictProgress([1, 1, 1, 1]);
     this.finaleClearAt = this.clock.elapsedTime + 1.0;
     this.moveCamera(new THREE.Vector3(20, 24, 28), new THREE.Vector3(0, 0.4, 0), this.cameraViewSize(30, 40), this.reducedMotion ? 0 : 3.4);
   }
@@ -768,6 +795,11 @@ export class CityScene {
       pulse.scale.setScalar(0.85 + Math.sin(elapsed * 8 + index) * 0.18);
     });
     this.updateBurst(delta);
+    if (this.level.city) {
+      this.chapterBoards.get(this.level.city)?.lights.forEach((light, index) => {
+        light.emissiveIntensity = THREE.MathUtils.damp(light.emissiveIntensity, .03 + this.chapterLighting[index] * 2.6, 2, delta);
+      });
+    }
     this.composer.render();
   }
 
@@ -839,7 +871,7 @@ export class CityScene {
 
 export function districtProgress(completed: readonly number[]): number[] {
   return DISTRICT_CENTERS.map((_, district) => {
-    const ids = LEVELS.filter((level) => level.district === district).map((level) => level.id);
+    const ids = LEVELS.filter((level) => !level.city && level.district === district).map((level) => level.id);
     const done = ids.filter((id) => completed.includes(id)).length;
     return ids.length ? done / ids.length : 0;
   });

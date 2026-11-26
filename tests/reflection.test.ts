@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { LEVELS, type LevelConfig } from '../src/game/levels';
 import { initialReflectionState, traceReflection, type Placement, type ReflectionGameState } from '../src/game/reflection';
 
+import { playCell, type CellMove } from '../src/game/reflectionPlay';
 import { SOLUTIONS, type SolutionFixture } from './campaign-solutions';
 
 
@@ -27,6 +28,29 @@ describe('reflection engine', () => {
       expect(trace.inventoryLeft).toBe(0);
     },
   );
+
+  it.each(SOLUTIONS.slice(9))('第 $levelId 号城市关卡可通过正常点格操作获胜', (fixture) => {
+    const level = LEVELS[fixture.levelId];
+    const state = initialReflectionState(level);
+    const moves: CellMove[] = [];
+    const rotate = (at: CellMove['at'], from: number, to: number, cycle: number) => {
+      for (let i = 0; i < (to - from + cycle) % cycle; i += 1) moves.push({ at, tool: null });
+    };
+    rotate(level.source, level.sourceDirection, fixture.sourceDirection, 4);
+    level.reflection.pieces.forEach((piece, index) => rotate(piece.at, piece.state, fixture.pieceStates[index],
+      piece.kind === 'single' ? 4 : 2));
+    for (const item of fixture.placements) {
+      const at = [item.x, item.z] as const;
+      moves.push({ at, tool: item.kind });
+      rotate(at, 0, item.state, item.kind === 'single' ? 4 : 2);
+    }
+    expect(moves).toHaveLength(level.parMoves);
+    for (const move of moves) {
+      expect(['source', 'piece', 'place']).toContain(playCell(level, state, move));
+      if (traceReflection(level, state).won) break;
+    }
+    expect(traceReflection(level, state).won).toBe(true);
+  });
 
   it('初始状态不获胜（每一关）', () => {
     for (const level of LEVELS) {

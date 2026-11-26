@@ -1,3 +1,4 @@
+import { CITIES, cityOf } from '../game/journey';
 import { LEVELS, type LevelConfig, type PieceKind } from '../game/levels';
 import type { ReflectionTrace } from '../game/reflection';
 import type { LevelRating } from '../game/score';
@@ -56,6 +57,7 @@ export class GameUI {
           </div>
           <nav class="level-progress" aria-label="街区进度"><ol id="level-list"></ol></nav>
           <div class="header-actions">
+            <button class="icon-button journey-home" data-journey="home" aria-label="返回首页">首页</button>
             <button class="icon-button" data-action="brief" aria-label="本关玩法说明" title="本关玩法说明">${icons.help}<span>说明</span></button>
             <button class="icon-button" data-action="reset" aria-label="重置当前关卡" title="重置当前关卡（R）">${icons.reset}<span>重置</span></button>
             <button class="icon-button" data-action="mute" aria-label="开启声音" aria-pressed="true" title="切换声音（M）">${icons.muted}<span>声音</span></button>
@@ -64,16 +66,17 @@ export class GameUI {
 
         <section id="intro" class="intro-screen screen-layer">
           <div class="intro-copy">
-            <p class="intro-overline">雨还没有停，城市仍在等待。</p>
+            <p class="intro-overline">Light Up the City</p>
             <h1><span>点亮</span><span>夜城</span></h1>
             <p class="intro-description">翻转屋顶的镜面，安放器件、转动光塔，<br>让光束穿过街角，抵达每一盏等待亮起的背灯。</p>
             <div class="intro-actions">
               <button class="primary-button" data-action="start"><span id="start-label">开始点亮</span>${icons.arrow}</button>
+              <button class="icon-button" data-journey="collection">城市收藏</button>
               <button class="icon-button" id="open-workshop">造光工坊</button>
             </div>
             <p id="save-note" class="save-note"></p>
           </div>
-          <div class="intro-footnote"><span class="tiny-light"></span>一束光，${LEVELS.length} 段街角，一座城。</div>
+          <div class="intro-cities" aria-label="城市之旅">${CITIES.map(city => `<button data-journey="observe-${city.key}"><img src="./journey/${city.key}.${city.key === 'rain' ? 'png' : 'jpg'}" alt=""><span>${city.name}</span></button>`).join('')}</div>
         </section>
 
         <section id="hud" class="game-hud" hidden>
@@ -118,9 +121,11 @@ export class GameUI {
 
         <section id="finale" class="finale-screen screen-layer" hidden>
           <div class="finale-copy">
-            <p class="finale-count">${LEVELS.length} / ${LEVELS.length} 街区已点亮</p>
-            <h2>这座城市，因你而亮。</h2>
+            <p class="finale-count" id="finale-count">${LEVELS.length} / ${LEVELS.length} 街区已点亮</p>
+            <h2 id="finale-title">这座城市，因你而亮。</h2>
             <p id="finale-stars"></p>
+            <button class="primary-button" data-journey="advance" hidden>继续旅程</button>
+            <button class="icon-button" data-journey="collection">城市收藏</button>
             <button class="primary-button" data-action="replay"><span>再玩一次</span>${icons.reset}</button>
           </div>
           <div class="observe-bar" role="group" aria-label="城市观赏控制">
@@ -186,6 +191,7 @@ export class GameUI {
 
   showIntro(save: SaveData): void {
     this.shell.dataset.screen = 'intro';
+    this.shell.dataset.city = 'rain';
     this.intro.hidden = false;
     this.hud.hidden = true;
     this.finale.hidden = true;
@@ -200,6 +206,7 @@ export class GameUI {
 
   showWorkshop(editing: boolean): void {
     this.shell.dataset.screen = editing ? 'editor' : 'workshop';
+    this.shell.dataset.city = 'rain';
     this.intro.hidden = true;
     this.hud.hidden = true;
     this.finale.hidden = true;
@@ -211,13 +218,14 @@ export class GameUI {
   showLevel(level: LevelConfig, completed: readonly number[], best: Record<number, BestScore>, hintText: string | null, mode?: 'trial' | 'challenge'): void {
     this.currentLevel = level;
     this.shell.dataset.screen = mode ?? 'playing';
+    this.shell.dataset.city = mode ? 'rain' : CITIES[cityOf(level.id)].key;
     this.intro.hidden = true;
     this.finale.hidden = true;
     this.toast.hidden = true;
     this.hud.hidden = false;
     rootQuery('#level-brief').hidden = true;
     rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = false;
-    rootQuery('#level-number').textContent = mode === 'trial' ? '编辑器试玩' : mode === 'challenge' ? '玩家关卡挑战' : `第 ${level.id + 1} 关 / 共 ${LEVELS.length} 关 · ${level.chapter}`;
+    rootQuery('#level-number').textContent = mode === 'trial' ? '编辑器试玩' : mode === 'challenge' ? '玩家关卡挑战' : `${CITIES[cityOf(level.id)].name} · 第 ${level.id + 1} 关 · ${level.chapter}`;
     rootQuery('#level-name').textContent = level.name;
     rootQuery('#level-subtitle').textContent = level.subtitle;
 
@@ -322,18 +330,25 @@ export class GameUI {
     this.toast.hidden = true;
   }
 
-  showFinale(save: SaveData): void {
+  showFinale(save: SaveData, preview = false): void {
     this.shell.dataset.screen = 'finale';
+    this.shell.dataset.city = 'rain';
     this.hud.hidden = true;
     this.toast.hidden = true;
     this.intro.hidden = true;
     this.finale.hidden = false;
     rootQuery('#level-brief').hidden = true;
     rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = true;
-    const totalStars = Object.values(save.best).reduce((sum, score) => sum + score.stars, 0);
-    rootQuery('#finale-stars').textContent = `收集 ${totalStars} / ${LEVELS.length * 3} ★ · 点击顶部街区可重玩任意关卡`;
-    this.renderProgress(LEVELS.length - 1, LEVELS.map((level) => level.id), false, save.best);
-    this.announce(`${LEVELS.length} 段街角全部点亮。这座城市，因你而亮。`);
+    const rain = CITIES[0];
+    const completed = save.completed.filter(id => id < rain.end);
+    const totalStars = completed.reduce((sum, id) => sum + (save.best[id]?.stars ?? 0), 0);
+    rootQuery('#finale-count').textContent = `${completed.length} / ${rain.end} 街区已点亮`;
+    rootQuery('#finale-title').textContent = preview ? rain.name : '这座城市，因你而亮。';
+    rootQuery('#finale-stars').textContent = `收集 ${totalStars} / ${rain.end * 3} ★`;
+    rootQuery('[data-action="replay"]').hidden = preview || save.completed.length < LEVELS.length;
+    rootQuery('[data-journey="advance"]').hidden = preview;
+    this.renderProgress(rain.end - 1, save.completed, false, save.best);
+    this.announce(preview ? rain.name : '雨夜之城完成复苏。');
   }
 
   setObserveHidden(hidden: boolean): void {
@@ -410,7 +425,8 @@ export class GameUI {
   }
 
   private renderProgress(current: number, completed: readonly number[], intro: boolean, best: Record<number, BestScore>): void {
-    rootQuery('#level-list').innerHTML = LEVELS.map((level, index) => {
+    rootQuery('#level-list').innerHTML = LEVELS.filter(level => cityOf(level.id) === cityOf(current)).map((level) => {
+      const index = level.id;
       const isComplete = completed.includes(index);
       const isCurrent = index === current && !intro;
       const unlocked = index <= Math.min(completed.length, LEVELS.length - 1);

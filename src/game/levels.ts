@@ -1,3 +1,5 @@
+import { NEW_CITY_LEVELS } from './chapterLevels';
+
 export type Direction = 0 | 1 | 2 | 3;
 export type GridPoint = readonly [number, number];
 
@@ -28,6 +30,7 @@ export interface ReflectionConfig {
 
 export interface LevelConfig {
   id: number;
+  city?: 1 | 2;
   name: string;
   subtitle: string;
   chapter: string;
@@ -175,6 +178,7 @@ export const LEVELS: readonly LevelConfig[] = [
     },
     district: 3, districtCenter: [5, 5], parMoves: 12,
   },
+  ...NEW_CITY_LEVELS,
 ] as const;
 
 export const OPTICS_HEIGHT = 2.25;

@@ -1,5 +1,7 @@
 import './styles.css';
 import './workshop.css';
+import './journey.css';
+import { CITIES, cityOf, phaseProgress } from './game/journey';
 import { CityAudio } from './game/audio';
 import { LEVELS, type GridPoint, type LevelConfig } from './game/levels';
 import {
@@ -14,7 +16,7 @@ import { CityScene, districtProgress } from './scene/CityScene';
 import { GameUI } from './ui/GameUI';
 import { playCell, type CellMove, type ToolSelection } from './game/reflectionPlay';
 
-type GameState = 'intro' | 'workshop' | 'editor' | 'challengeReady' | 'playing' | 'levelComplete' | 'finale';
+type GameState = 'intro' | 'workshop' | 'editor' | 'challengeReady' | 'playing' | 'levelComplete' | 'finale' | 'collection' | 'exhibit';
 
 /** 教学提示：短文案 + 玩家做出对应操作后自动消失（不强制阅读）。 */
 const LEVEL_HINTS: Record<number, { text: string; dismiss: 'piece' | 'place' | 'source' }> = {
@@ -51,6 +53,104 @@ const ui = new GameUI(document.querySelector<HTMLElement>('#app')!, {
   onPanorama: () => scene.resetFinaleView(),
   onToggleSpin: () => scene.toggleFreeSpin(),
 });
+
+const shell = document.querySelector<HTMLElement>('.game-shell')!;
+const collection = document.createElement('section');
+collection.className = 'journey-collection';
+collection.hidden = true;
+collection.setAttribute('aria-label', '城市收藏');
+shell.append(collection);
+const exhibit = document.createElement('section');
+exhibit.className = 'journey-exhibit';
+exhibit.hidden = true;
+shell.append(exhibit);
+let observedCity = 0;
+
+shell.addEventListener('click', (event) => {
+  const control = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-journey]');
+  if (!control || control.disabled) return;
+  const action = control.dataset.journey;
+  if (action === 'home') showHome();
+  else if (action === 'collection') showCollection();
+  else if (action === 'revival') showCity(observedCity, true);
+  else if (action === 'advance') observedCity < CITIES.length - 1 ? loadLevel(CITIES[observedCity + 1].first) : showCollection();
+  else if (action === 'restart' && save.completed.length === LEVELS.length) replay();
+  else if (action?.startsWith('observe-')) showCity(CITIES.findIndex(city => action === `observe-${city.key}`));
+  else if (action?.startsWith('level-')) {
+    const index = Number(action.slice(6));
+    if (index >= 0 && index < LEVELS.length && index <= save.completed.length) loadLevel(index);
+  }
+});
+
+function closeJourney(): void {
+  collection.hidden = true;
+  if (!exhibit.hidden) {
+    exhibit.hidden = true;
+    exhibit.replaceChildren();
+    scene.setRendering(true);
+  }
+}
+
+function showCollection(): void {
+  clearTimers();
+  clearSharedHash();
+  closeJourney();
+  workshop.hide();
+  ui.setObserveHidden(false);
+  ui.showWorkshop(false);
+  state = 'collection';
+  collection.hidden = false;
+  scene.showIntro();
+  collection.innerHTML = `
+    <header><div><p>点亮夜城</p><h2>城市收藏</h2></div><button class="icon-button" data-journey="home">返回首页</button></header>
+    <div class="journey-cards">${CITIES.map(city => {
+      const levels = LEVELS.slice(city.first, city.end);
+      const done = levels.filter(level => save.completed.includes(level.id)).length;
+      const unlocked = city.first <= save.completed.length;
+      const complete = done === levels.length;
+      return `<article>
+        <img src="./journey/${city.key}.${city.key === 'rain' ? 'png' : 'jpg'}" alt="">
+        <div class="journey-card-copy"><small>${city.region}</small><h3>${city.name}</h3>
+        <p>${done} / ${levels.length} 关 · ${complete ? '已复苏' : unlocked ? '已解锁' : '旅程待解锁'}</p>
+        <button class="icon-button" data-journey="observe-${city.key}">${complete ? '自由观赏' : '预览城市'}</button>
+        <div class="journey-levels" aria-label="${city.name}选关">${levels.map(level =>
+          `<button class="icon-button" data-journey="level-${level.id}" ${level.id > save.completed.length ? 'disabled' : ''}
+            aria-label="第 ${level.id + 1} 关 ${level.name}，${save.best[level.id]?.stars ?? 0} 星">
+            ${String(level.id + 1).padStart(2,'0')}<small>${'★'.repeat(save.best[level.id]?.stars ?? 0)}</small>
+           </button>`).join('')}</div></div></article>`;
+    }).join('')}</div>`;
+}
+
+function showCity(index: number, ceremony = false): void {
+  const city = CITIES[index];
+  if (!city) return;
+  clearTimers();
+  closeJourney();
+  observedCity = index;
+  workshop.hide();
+  ui.setObserveHidden(false);
+  const completed = LEVELS.slice(city.first, city.end).every(level => save.completed.includes(level.id));
+  if (index === 0) {
+    state = 'finale';
+    ui.showFinale(save, !ceremony);
+    scene.showFinale(completed);
+    return;
+  }
+  state = 'exhibit';
+  ui.showWorkshop(false);
+  scene.setRendering(false);
+  exhibit.hidden = false;
+  const next = index < CITIES.length - 1;
+  exhibit.innerHTML = `<iframe title="${city.name}" src="./experiments/${city.key}-city/index.html?exhibit=${ceremony ? 'show' : 'view'}"></iframe>
+    <div class="journey-exhibit-actions">
+      <span>${ceremony && !next ? '三座城市，灯火相连' : completed ? '章节已复苏' : '城市预览'}</span>
+      <button class="icon-button" data-journey="collection">城市收藏</button>
+      ${completed && !ceremony ? '<button class="icon-button" data-journey="revival">重播复苏</button>' : ''}
+      ${ceremony && next ? '<button class="icon-button" data-journey="advance">继续旅程</button>' : ''}
+      ${ceremony && !next ? '<button class="icon-button" data-journey="restart">再玩一次</button>' : ''}
+      <button class="icon-button" data-journey="home">首页</button>
+    </div>`;
+}
 
 let scene: CityScene;
 let workshop: Workshop;
@@ -101,9 +201,7 @@ try {
 function startGame(): void {
   if (!scene) return;
   if (save.completed.length === LEVELS.length) {
-    state = 'finale';
-    ui.showFinale(save);
-    scene.showFinale();
+    showCity(2, true);
     return;
   }
   currentLevel = Math.min(save.currentLevel, save.completed.length);
@@ -111,6 +209,8 @@ function startGame(): void {
 }
 
 function loadLevel(index: number, immediate = false): void {
+  closeJourney();
+  ui.setObserveHidden(false);
   clearTimers();
   currentLevel = index;
   state = 'playing';
@@ -124,6 +224,7 @@ function loadLevel(index: number, immediate = false): void {
   const trace = traceReflection(level, reflectionState);
   ui.showLevel(level, save.completed, save.best, hint?.text ?? null);
   ui.updateReflection(trace, inventoryLeft(level, reflectionState), 0, null, 0);
+  scene.setChapterProgress(phaseProgress(cityOf(index), save.completed));
   scene.setLevel(level, trace, immediate, reflectionState);
   scene.setInteractive(true);
   save.currentLevel = index;
@@ -135,6 +236,8 @@ function clearSharedHash(): void {
 }
 
 function showHome(): void {
+  closeJourney();
+  ui.setObserveHidden(false);
   clearTimers();
   clearSharedHash();
   customMode = undefined;
@@ -253,22 +356,22 @@ function completeLevel(): void {
   save.currentLevel = Math.min(currentLevel + 1, LEVELS.length - 1);
   writeSave(save);
   scene.setDistrictProgress(districtProgress(save.completed));
+  scene.setChapterProgress(phaseProgress(cityOf(currentLevel), save.completed));
   scene.celebrate();
-  audio.success(currentLevel === LEVELS.length - 1);
+  const chapterEnd = currentLevel + 1 === CITIES[cityOf(currentLevel)].end;
+  audio.success(chapterEnd);
   const best = save.best[currentLevel];
   toastTimer = window.setTimeout(() => {
-    ui.showLevelComplete(LEVELS[currentLevel], currentLevel === LEVELS.length - 1, rating, best);
+    ui.showLevelComplete(LEVELS[currentLevel], chapterEnd, rating, best);
   }, 750);
-  nextTimer = window.setTimeout(nextLevel, 3600);
+  if (!chapterEnd) nextTimer = window.setTimeout(nextLevel, 3600);
 }
 
 function nextLevel(): void {
   if (state !== 'levelComplete' || customMode) return;
   clearTimers();
-  if (currentLevel === LEVELS.length - 1) {
-    state = 'finale';
-    ui.showFinale(save);
-    scene.showFinale();
+  if (currentLevel + 1 === CITIES[cityOf(currentLevel)].end) {
+    showCity(cityOf(currentLevel), true);
     return;
   }
   loadLevel(currentLevel + 1);

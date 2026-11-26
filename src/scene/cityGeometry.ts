@@ -111,7 +111,7 @@ export function createCity(): CityVisual {
   const beacons: THREE.Mesh[] = [];
   const life: DistrictLifeSeed[] = [];
   const districts = DISTRICT_CENTERS.map((center, index) => {
-    const levelsHere = LEVELS.filter((level) => level.district === index);
+    const levelsHere = LEVELS.filter((level) => !level.city && level.district === index);
     const occupied = new Set<string>();
     let size = 7;
     for (const level of levelsHere) {

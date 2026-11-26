@@ -168,6 +168,7 @@ function mount(){
   addEventListener('resize',resize);
   resize();
   syncTime();
+  if (new URLSearchParams(location.search).get('exhibit') === 'show') startShow();
   renderer.setAnimationLoop(now=>{
     const delta=now-prev;
     const dt=Math.min(.15,Math.max(0,delta/1000));

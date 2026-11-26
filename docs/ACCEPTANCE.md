@@ -164,3 +164,13 @@ Playwright 汇总：3 个 spec 全部通过（1.9m）。
 - Chrome 工坊回归 3 项通过。手机视口复现并验证初始即胜的拦截，保留草稿，调整布局后完成合法试玩。桌面验收保存终态、保留初始设计、修改玩法后移除旧证明，独立浏览器仍能挑战本地分享链接。
 - Chrome 桌面九关回归通过，覆盖续玩、评分、关卡推进、城市终局与重玩。生产构建通过，Vitest 共 28 项通过，覆盖伪造验证标志、非法动作、锁定状态、陈旧证明和公开响应字段。
 - Qoder CLI 1.1.98 的站点列表查询返回 `sites_auth_required`。云数据库读写、重新部署持久化与云端社区待在已登录的测试站点完成。见 [Qoder Sites 接手计划](QODER-PHASE-B2-HANDOFF.md) 和 [手机拦截截图](screenshots/phase-b2-initial-win.png)。
+
+## v3 三城主线验收
+
+- Chrome 从空存档使用生产构建连续完成 01–25 关。实测雨夜之城和爱琴余晖章末进入下一章，上海启动「点亮两岸」，25 个完成记录及 25 份个人最佳均写入 v3 存档。
+- Playwright 分批 9 项通过，覆盖原主线和新章节、三城收藏预览与存档隔离、跨城刷新续玩、移动端触摸取回及工坊编辑、保存、分享和独立浏览器挑战。Vitest 60 项通过，生产构建通过。
+- 视觉验收修正了新沙盘水面硬边、手机港口关标题折行、中等视口进度和操作按钮重叠。实拍见 [首页](screenshots/v3-home.png)、[城市收藏](screenshots/v3-collection.png)、[雨夜之城解谜](screenshots/v3-puzzle-rain.png)、[爱琴余晖解谜](screenshots/v3-puzzle-aegean.png)、[两岸灯火解谜](screenshots/v3-puzzle-shanghai.png)及[移动端港口](screenshots/v3-mobile-harbour.png)。
+- 观赏与演出画面见 [雨夜复苏](screenshots/v3-rain-revival.png)、[雨夜观赏](screenshots/v3-observe-rain.png)、[爱琴黄昏](screenshots/v3-map-aegean.png)及[点亮两岸起幕](screenshots/v3-map-shanghai.png)与[终幕](screenshots/v3-shanghai-end.png)。生产构建中演出实测到达 21:03 的结束状态。
+- 运行环境为 Windows 桌面 Chrome，ANGLE SwiftShader 软件 WebGL，实际检查了 1440 × 900、1100 × 760 与 390 × 844 视口。在 1100 × 760 视口、605 × 418 渲染缓冲区下，雨夜第一关的短时 RAF 采样约 6 fps。完整城市打开时暂停主游戏渲染，退出时卸载观赏页面。实体移动设备、硬件加速性能与长时间显存曲线待验收。
+
+关卡难度目标及限制见 [v3 章节与关卡说明](V3-JOURNEY.md)。

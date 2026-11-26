@@ -54,6 +54,7 @@ function start() {
   landscape(scene);
   const lighting = atmosphereAndSea(scene, matchMedia('(pointer: coarse)').matches);
   const animateCity = cityLife(scene, city(scene));
+  let ceremony = new URLSearchParams(location.search).get('exhibit') === 'show';
   const target = new T.Vector3();
   const position = new T.Vector3();
   const offset = new T.Vector3();
@@ -155,6 +156,11 @@ function start() {
   document.addEventListener('keydown',(event) => {
     if (event.key.toLowerCase() === 'h' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey) toggleUI();
   });
+  if (ceremony) {
+    hour = 17.6;
+    slider.value = String(hour);
+    setPlay(true);
+  }
   syncClock();
 
   let elapsed = 0;
@@ -176,6 +182,7 @@ function start() {
     if (playing) {
       hour = (hour + dt * .23) % 24;
       slider.value = String(hour);
+      if (ceremony && hour >= 21) { ceremony = false; setPlay(false); }
       syncClock();
     }
     if (framing) {

@@ -204,10 +204,10 @@ test('complete the nine-level campaign with unified Reflection rules', async ({ 
   await advanceCampaign(page, 8);
   await page.screenshot({ path: 'test-results/10-finale.png' });
 
-  await page.getByRole('button', { name: '再玩一次' }).click();
-  await expect(page.locator('#level-name')).toHaveText('第一面镜');
+  await page.getByRole('button', { name: '继续旅程' }).click();
+  await expect(page.locator('#level-name')).toHaveText('港口双灯');
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('light-up-the-city-v3')!));
-  expect(saved.completed).toEqual([]);
-  expect(saved.currentLevel).toBe(0);
+  expect(saved.completed).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(saved.currentLevel).toBe(9);
   expect(errors).toEqual([]);
 });

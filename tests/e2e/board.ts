@@ -1,3 +1,4 @@
+import { CITIES, cityOf } from '../../src/game/journey';
 import { expect, type Page } from '@playwright/test';
 import { LEVELS, type LevelConfig } from '../../src/game/levels';
 import { SOLUTIONS } from '../campaign-solutions';
@@ -39,6 +40,17 @@ export async function solveLevel(page: Page, level: LevelConfig): Promise<void> 
 }
 
 export async function advanceCampaign(page: Page, solved: number): Promise<void> {
+  const city = cityOf(solved);
+  if (solved + 1 === CITIES[city].end) {
+    await page.locator('[data-action="next"]').click();
+    if (city === 0) {
+      await expect(page.locator('#finale')).toBeVisible();
+      await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
+    } else {
+      await expect(page.locator('.journey-exhibit iframe')).toBeVisible();
+    }
+    return;
+  }
   await page.locator('[data-action="next"]').evaluate((button) => {
     if (!button.closest('[hidden]')) (button as HTMLButtonElement).click();
   });
