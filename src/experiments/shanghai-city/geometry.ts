@@ -5,7 +5,18 @@ export type XY = [number, number];
 export type Polygon = XY[][];
 export const mix = T.MathUtils.lerp;
 export const smooth = T.MathUtils.smoothstep;
-export const stone = new T.MeshStandardMaterial({ vertexColors:true, roughness:.83 });
+export const stone = new T.MeshStandardMaterial({ vertexColors:true, roughness:.81 });
+stone.onBeforeCompile=shader=>{
+  shader.vertexShader='varying vec3 modelSurface;\n'+shader.vertexShader.replace(
+    '#include <begin_vertex>','#include <begin_vertex>\nmodelSurface=position;');
+  shader.fragmentShader='varying vec3 modelSurface;\n'+shader.fragmentShader.replace(
+    '#include <color_fragment>',`#include <color_fragment>
+      vec3 s=modelSurface;
+      float grit=sin(s.x*81.+s.z*62.)*sin(s.y*93.+s.x*47.-s.z*29.);
+      float fleck=1.-smoothstep(.014,.10,length(fwidth(s)));
+      float wall=smoothstep(.002,.017,fwidth(s.y));
+      diffuseColor.rgb*=.988+fleck*.045*grit+.013*wall*cos(s.y*14.1+s.x*1.6+s.z*2.1);`);
+};
 const cube = new T.BoxGeometry();
 const parts = new Map<T.Material, T.BufferGeometry[]>();
 const transform = new T.Matrix4();

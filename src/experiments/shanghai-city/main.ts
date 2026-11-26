@@ -9,7 +9,7 @@ import './style.css';
 
 type Landmark=keyof typeof sites;
 const views={
-  city:[[-30,83,184],[-9,17,-26]],
+  city:[[-121,256,347],[-14,0,1]],
   bund:[[-81,12,-38],[28,21,-39]],
   pudong:[[-25,29,-40],[-94,6,-40]],
   heritage:[[-72,10,-44],[-95,4,-44]],
@@ -44,7 +44,7 @@ function mount(){
   controls.dampingFactor=.085;
   controls.screenSpacePanning=false;
   controls.minDistance=2.25;
-  controls.maxDistance=355;
+  controls.maxDistance=580;
   controls.minPolarAngle=.0015;
   controls.maxPolarAngle=Math.PI/2-.032;
   controls.rotateSpeed=.50;
@@ -91,7 +91,10 @@ function mount(){
       const [position,aim]=views[name as keyof typeof views];
       target.fromArray(aim);eye.fromArray(position);
     }
-    const portrait=T.MathUtils.clamp(.82/camera.aspect,1,1.4);
+    const framed=name==='city';
+    camera.fov=(framed?27:40)+(framed?36:30)*(1-smooth(camera.aspect,.45,.95));
+    camera.updateProjectionMatrix();
+    const portrait=T.MathUtils.clamp((framed?.98:.82)/camera.aspect,1,1.48);
     eye.sub(target).multiplyScalar(portrait).add(target);
     presets.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===name)));
     select.value=landmark?name:'';
@@ -108,7 +111,7 @@ function mount(){
   function resize(){
     const container=$('view');
     camera.aspect=container.clientWidth/Math.max(1,container.clientHeight);
-    camera.fov=40+30*(1-smooth(camera.aspect,.45,.95));
+    camera.fov=(view==='city'?27:40)+(view==='city'?36:30)*(1-smooth(camera.aspect,.45,.95));
     camera.updateProjectionMatrix();
     resizeBuffer();
     if(selected)move(view,true);

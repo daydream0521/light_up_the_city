@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {Reflector} from 'three/addons/objects/Reflector.js';
 import {bankAt,roads} from './city';
+import {onDisplay,waterShape} from './display';
 import {extrude,type XY} from './geometry';
 import {riverColor,skyUniforms} from './lighting';
 
@@ -42,9 +43,9 @@ const riverFragment = /* glsl */`
     float fres=pow(1.-max(0.,v.y),2.2);
     vec3 n=normalize(vec3((fine.x-.5)*.18,1.,(fine.y-.5)*.13));
     float gold=max(dot(reflect(-v,n),direction),0.);
-    vec3 col=mix(water*(.77+.37*broad.x),reflected,.35+.43*fres+night*.13);
+    vec3 col=mix(water*(.88+.24*broad.x),reflected,.31+.46*fres+night*.16);
     col+=sun*pow(gold,75.)*.46*(1.-night);
-    col=mix(col,horizon,smoothstep(192.,420.,dist));
+    col=mix(col,water,smoothstep(235.,560.,dist)*.19);
     gl_FragColor=vec4(col,1.);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -52,7 +53,7 @@ const riverFragment = /* glsl */`
 `;
 
 export function makeRiver(scene:T.Scene,small:boolean) {
-  const mirror=new Reflector(new T.PlaneGeometry(950,950),{
+  const mirror=new Reflector(waterShape(),{
     textureWidth:small?320:512,textureHeight:small?256:360,multisample:0,clipBias:.001,
     shader:{
       vertexShader:riverVertex, fragmentShader:riverFragment,
@@ -121,7 +122,7 @@ function cruise(scene:T.Scene,scale:number){
 export function riverLife(scene:T.Scene){
   const ships=[cruise(scene,.86),cruise(scene,1.15),cruise(scene,.77)];
   const lanes=roads.filter(([code, points])=>code>=2 && points.length>=2 &&
-    points.every(([x,z])=>Math.abs(z)<105 && Math.min(Math.abs(x-bankAt(0,z)),Math.abs(x-bankAt(1,z)))<25))
+    points.every(([x,z])=>onDisplay(x,z) && Math.abs(z)<105 && Math.min(Math.abs(x-bankAt(0,z)),Math.abs(x-bankAt(1,z)))<25))
     .map(([,points])=>new T.CatmullRomCurve3(points.map(([x,z])=>new T.Vector3(x,.43,z)),false,'centripetal'))
     .sort((a,b)=>b.getLength()-a.getLength()).slice(0,8);
   const carBody=new T.MeshStandardMaterial({color:'#8096a9'});
@@ -141,7 +142,7 @@ export function riverLife(scene:T.Scene){
   return (time:number,night:number)=>{
     for(let i=0;i<ships.length;i++){
       const t=time*(i===1?-.65:.76)+[19,-37,-85][i];
-      const z=((t+122)%244+244)%244-122;
+      const z=((t+92)%151+151)%151-92;
       const side=i===1?.67:i===0?.40:.53;
       const x=T.MathUtils.lerp(bankAt(0,z),bankAt(1,z),side);
       const next=T.MathUtils.lerp(bankAt(0,z+1),bankAt(1,z+1),side);

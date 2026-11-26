@@ -15,7 +15,8 @@ const warm=luminous('#d78b46',0,.40);
 const limestone=luminous('#dc9a54',0,.25);
 const clockLight=luminous('#ffe7c0',0,1.15);
 const pearlPink=luminous('#ff457c',1,.94);
-const pearlRose=luminous('#f969a6',1,.30);
+const pearlRose=luminous('#d94271',1,.27);
+const pearlSeam=luminous('#e293b0',1,.34);
 const strips=luminous('#a4d5ff',1,.79);
 const brass=luminous('#eac181',1,.8);
 
@@ -39,6 +40,11 @@ function pearl() {
   add(cylinder,stone,'#6e8492',x,.6,z,8.5,1.2,8.5);
   add(cylinder,glass[1],'#5a829a',x,1.65,z,6.6,1.6,6.6);
   add(cylinder,stone,'#b5b5b3',x,2.47,z,7.15,.48,7.15);
+  add(cylinder,stone,'#91a5a6',x,.39,z,8.88,.36,8.88);
+  for(let j=0;j<28;j++){
+    const a=j*Math.PI/14;
+    box(stone,'#c0c6ca',x+Math.sin(a)*6.49,1.63,z+Math.cos(a)*6.49,.11,1.28,.21,a);
+  }
   for(let j=0;j<3;j++) {
     const a=j*Math.PI*2/3+.3;
     const leg=(radius:number,y:number)=>new T.Vector3(x+Math.cos(a)*radius,y,z+Math.sin(a)*radius);
@@ -52,7 +58,18 @@ function pearl() {
       const rr=r*Math.sqrt(1-q*q);
       add(ring,pearlPink,'#e47a98',x,y+q*r,z,rr,.86,rr);
     }
-    add(cylinder,glass[5],'#604763',x,y-.32*r,z,r*.955,.26*r,r*.955);
+    if(r>1){
+      add(cylinder,glass[5],'#544f66',x,y-.26*r,z,r*.983,.18*r,r*.983);
+      for(let j=0;j<24;j++){
+        const a=j*Math.PI/12;
+        box(pearlSeam,'#b58a9d',x+Math.sin(a)*r*.982,y-.26*r,z+Math.cos(a)*r*.982,.052,r*.17,.044,a);
+        if(j%2===0)for(const sign of [-1,1]){
+          const v=(t:number)=>new T.Vector3(x+Math.sin(a)*r*Math.sqrt(1-t*t),y+r*t,z+Math.cos(a)*r*Math.sqrt(1-t*t));
+          rod(pearlSeam,'#b56d88',v(sign*.45),v(sign*.73),.023);
+          rod(pearlSeam,'#b56d88',v(sign*.73),v(sign*.90),.021);
+        }
+      }
+    }
   }
   for(let i=0;i<5;i++) {
     const a=i*Math.PI*2/5;
@@ -80,17 +97,22 @@ function shanghaiTower() {
   });
   add(loft(rings),glass[2],'#6f9ab2');
   const rim=rings.at(-1)!;
-  add(cylinder,stone,'#a9b9c1',x,62.92,z,2.65,.22,2.65);
+  const crown=roundedTriangle(3.13,63.07,1.744,x,z);
+  add(loft([rim,crown]),glass[2],'#556f7c');
+  add(cylinder,stone,'#72868d',x,62.88,z,2.37,.22,2.37);
+  add(cylinder,stone,'#82989a',x,63.02,z,1.72,.27,1.72);
   for(const j of [0,1,2]) {
     const points=rings.map(r=>r[j*20].clone());
     for(let i=1;i<points.length;i++) rod(strips,'#bfd9e6',points[i-1],points[i],.065);
     const a=rim[j*20];
     box(strips,'#bdc8d4',a.x,63,a.z,.18,.28,.18);
   }
-  for(const i of [5,10,15,20,25,30,35,40,46]) {
-    add(loft([rings[i].map(p=>p.clone().add(new T.Vector3(0,-.09,0))),rings[i]]),strips,'#8cb3c5');
+  for(const i of [5,10,16,22,28,34,40,46]) {
+    add(loft([rings[i].map(p=>p.clone().add(new T.Vector3(0,-.20,0))),rings[i]]),strips,'#8cb3c5');
   }
-  box(stone,'#738799',x,1,z,14.3,2,11.3,.2);
+  box(stone,'#738799',x,.58,z,14.3,1.16,11.3,.2);
+  box(glass[0],'#527a87',x-1.7,1.56,z+.72,10.3,1.49,8.3,.2);
+  box(stone,'#c5c6ba',x-1.7,2.33,z+.72,10.55,.15,8.52,.2);
 }
 
 const financeAngle=-.17;
@@ -112,6 +134,12 @@ function financialCenter() {
   }
   box(glass[3],'#77adc8',x,48.27,z,7.68,1.32,1.84,financeAngle);
   box(strips,'#8eb9cf',x,48.99,z,7.7,.12,1.89,financeAngle);
+  for(const ix of [-2.8,-1.9,-.94,0,.94,1.9,2.8])for(const face of [-1,1]){
+    rod(strips,'#96b4be',v(ix,47.67,face*.932),v(ix,48.93,face*.932),.035);
+  }
+  for(const side of [-1,1])for(const offset of [.34,.58]){
+    rod(stone,'#a4b8bd',v(side*(4.85-offset),3,4.52),v(side*(3.99-offset),43.5,1.235),.054);
+  }
   box(stone,gray,x,43.48,z,7.94,.20,2.45,financeAngle);
   box(stone,gray,x,.87,z,12.2,1.74,11.8,financeAngle);
 }
@@ -122,13 +150,15 @@ function jinMao() {
   for(let i=0;i<13;i++) {
     const w=9.45*Math.pow(.91,i);
     const h=5.7*Math.pow(.887,i);
-    box(glass[4],'#788f9f',x,floor+h*.5,z,w,h,w,.19);
-    box(glass[4],'#607a8c',x,floor+h*.5,z,w*.93,h,w*.93,.19+Math.PI/4);
-    box(brass,'#8e9ba4',x,floor+h-.12,z,w+.31,.20,w+.31,.19);
-    for(const a of [0,1,2,3]) {
-      const theta=a*Math.PI/2+.19+Math.PI/4;
-      const r=w*.71;
-      box(stone,'#9ba8ae',x+Math.cos(theta)*r,floor+h*.5,z+Math.sin(theta)*r,.15,h,.15);
+    const points=[[-.5,-.33],[-.33,-.5],[.33,-.5],[.5,-.33],[.5,.33],[.33,.5],[-.33,.5],[-.5,.33]];
+    const profile=(y:number,s:number)=>points.map(([a,b])=>new T.Vector3(
+      x+(a*Math.cos(.19)+b*Math.sin(.19))*w*s,y,z+(b*Math.cos(.19)-a*Math.sin(.19))*w*s));
+    const low=profile(floor,1), high=profile(floor+h,.947);
+    add(loft([low,profile(floor+h*.76,.958),high]),glass[4],i%2?'#637985':'#78888e');
+    add(loft([profile(floor+h-.15,1.025),profile(floor+h+.035,1.025)]),brass,'#9c9b87');
+    for(let j=0;j<low.length;j++){
+      rod(stone,'#a8b2b4',low[j],high[j],.065);
+      if(i<9)rod(stone,'#919c9f',low[j].clone().lerp(low[(j+1)%8],.29),high[j].clone().lerp(high[(j+1)%8],.29),.044);
     }
     floor+=h;
   }
@@ -156,7 +186,14 @@ function customsHouse() {
   const [x,z]=sites.customs;
   tiers(x-.68,z,6.55,7.1,3.1,sand);
   const front=x+2.54;
-  box(stone,'#916c58',front+.04,1.0,z,.22,1.74,3.13);
+  box(limestone,'#998779',front+.035,1.00,z,.18,1.74,3.13);
+  for(const q of [-.91,0,.91]){
+    box(stone,'#38434b',front+.143,1.01,z+q,.026,1.42,.62);
+    box(warm,cream,front+.175,1.77,z+q,.15,.22,.88);
+  }
+  for(let j=0;j<4;j++){
+    box(limestone,'#bfb2a1',front+.33+j*.17,.33-j*.07,z,.80,.13,3.76);
+  }
   for(const b of [-1.42,-.48,.48,1.42]) {
     add(cylinder,warm,cream,front+.28,1.34,z+b,.127,2.33,.127);
     box(warm,trim,front+.28,2.46,z+b,.36,.14,.40);
@@ -168,7 +205,15 @@ function customsHouse() {
     box(warm,cream,tx+a*1.08,5.12,z+b*1.13,.25,4.0,.26);
   }
   for(const y of [3.64,5.78,7.12,7.38])box(warm,trim,tx,y,z,2.54,.145,2.67);
-  box(stone,'#989183',tx,7.66,z,2.35,.57,2.4);
+  box(stone,'#989183',tx,7.66,z,2.35,.38,2.4);
+  box(warm,'#c5b49c',tx,7.89,z,2.14,.095,2.15);
+  for(const ix of [-.96,.96])for(const iz of [-1,1]){
+    box(limestone,'#c8b7a0',tx+ix,7.74,z+iz,.23,.39,.23);
+  }
+  for(const side of [-1,1])for(const q of [-.45,.45]){
+    box(stone,'#524f4b',tx+side*1.171,5.04,z+q,.05,.62,.22);
+    box(warm,cream,tx+side*1.198,4.71,z+q,.13,.058,.33);
+  }
   const dial=new T.CircleGeometry(.52,32);
   const outer=new T.CircleGeometry(.61,32);
   for(let i=0;i<4;i++){
@@ -204,6 +249,15 @@ function peaceHotel() {
     box(warm,trim,px+1.47,4.865,pz+dz,.138,.075,.26);
   }
   add(cone,stone,'#316c64',px,6.75,pz,2.14,1.91,2.14,Math.PI/4);
+  for(const side of [-1,1])for(const q of [-.72,-.35,0,.35,.72]){
+    rod(stone,'#68887a',new T.Vector3(px+side*1.50,5.80,pz+q*1.49),new T.Vector3(px+side*.05,7.67,pz+q*.05),.025);
+    rod(stone,'#68887a',new T.Vector3(px+q*1.49,5.80,pz+side*1.50),new T.Vector3(px+q*.05,7.67,pz+side*.05),.025);
+  }
+  for(const q of [-1.32,-.66,0,.66,1.32]){
+    box(warm,cream,x+2.66,1.21,z+.91+q,.12,.22,.47);
+    box(stone,'#38484c',x+2.63,.78,z+.91+q,.09,.70,.31);
+  }
+  box(warm,cream,x+2.82,1.39,z+.91,.53,.09,3.46);
   add(cylinder,stone,'#52867a',px,7.91,pz,.063,.37,.063);
 }
 
