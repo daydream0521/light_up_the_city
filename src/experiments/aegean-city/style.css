@@ -1,4 +1,6 @@
 :root {
+  --view-border: #e3c89770;
+  --view-surface: #102629ee;
   color-scheme: dark;
   font-family: system-ui, sans-serif;
   color: #f7efdf;
@@ -17,18 +19,7 @@ body { margin: 0; overflow: hidden; }
 }
 h1 { margin: 0; font: 500 clamp(28px, 4vw, 54px)/1.14 'Songti SC', SimSun, serif; letter-spacing: .14em; }
 header p { margin: .4rem 0 0; font: italic 20px Georgia, serif; }
-#visibility { top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); background: #15282cde; }
-#console {
-  bottom: max(18px, env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(460px, calc(100vw - 24px));
-  padding: 6px 10px;
-  background: #102629ee;
-  border: 1px solid #e3c89770;
-  border-radius: 14px;
-  box-shadow: 0 8px 28px #080e1770;
-}
+#visibility { border-color: var(--view-border); background: #15282cde; }
 nav { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; }
 button {
   background: transparent;
@@ -45,8 +36,6 @@ button {
 @media (hover: hover) { button:hover { background: #fbe7c424; } }
 button[aria-pressed=true] { color: #192828; background: #eed3a0; }
 :focus-visible { outline: 2px solid #ffe2a2; outline-offset: 2px; }
-.timeline { display: grid; grid-template-columns: 44px 1fr 45px; gap: 9px; align-items: center; border-top: 1px solid #ffffff25; margin-top: 3px; }
-.scrub { display: grid; grid-template-columns: 2.3em 1fr; align-items: center; min-width: 0; }
 label, output { font-size: 12px; }
 output { text-align: right; font-variant-numeric: tabular-nums; }
 input { width: 100%; margin: 0; height: 44px; accent-color: #eac991; cursor: ew-resize; }

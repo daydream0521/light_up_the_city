@@ -33,7 +33,7 @@
   inset: 0;
   z-index: 20;
   overflow: auto;
-  background: linear-gradient(145deg, #0a1727f5, #08101cee);
+  background: linear-gradient(145deg, #0a1727, #08101c);
   padding: clamp(20px, 5vw, 72px);
 }
 .journey-collection header {
@@ -53,15 +53,21 @@
 .journey-card-copy { padding: 15px; }
 .journey-card-copy h3 { margin: 6px 0 0; font-size: 26px; }
 .journey-card-copy p { margin: 9px 0; color: #bdd1e3; font-size: 14px; }
-.journey-levels { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 4px; margin-top: 12px; }
-.journey-levels button { min-width: 0; display: grid; align-content: center; width: 100%; padding: 0 2px; }
+.journey-chapter { max-width: 1230px; margin: 24px auto 0; padding: 14px 0; border-top: 1px solid var(--site-border); }
+.journey-chapter h3 { margin: 0; font-size: 22px; }
+.journey-cards article[data-selected="true"] { border-color: #92d6df; box-shadow: 0 0 0 1px #92d6df44; }
+.journey-cards [aria-pressed="true"] { color: #d2faff; border-color: #92d6df88; background: #1c4056; }
+.journey-levels { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 7px; margin-top: 12px; }
+.journey-levels button { min-width: 0; display: flex; justify-content: flex-start; min-height: 48px; gap: 7px; }
+.journey-levels .icon-button span { display: inline; }
+.journey-levels button small:last-child { margin-left: auto; }
 .journey-levels small { line-height: 1; color: #f4ca8f; }
 .journey-levels button:disabled { opacity: .37; cursor: default; }
 .journey-collection .icon-button, .journey-exhibit .icon-button { width: auto; padding-inline: 10px; }
 .journey-exhibit { position: absolute; inset: 0; z-index: 25; pointer-events: none; }
 .journey-exhibit-actions {
   position: absolute;
-  top: max(16px, env(safe-area-inset-top));
+  top: max(17px, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -69,7 +75,11 @@
   gap: 6px;
   white-space: nowrap;
 }
-.journey-exhibit-actions span { background: #102039e8; color: #f6cf96; padding: 9px; border-radius: 7px; font-size: 13px; }
+.journey-exhibit-actions span { min-width: 115px; display: grid; gap: 3px; background: #102039e8; color: #e2dbc9; padding: 6px 10px; border-radius: 7px; font-size: 11px; }
+.journey-exhibit-actions strong { font-weight: 500; color: #fff2d9; font-family: "Songti SC", SimSun, serif; font-size: 18px; }
+.game-shell[data-screen="exhibit"] .game-header { z-index: 27; justify-content: flex-end; padding-block: 17px; }
+.game-shell[data-screen="exhibit"] :is(.brand, .level-progress, [data-action="reset"]) { display: none; }
+.game-shell[data-screen="finale"] .observe-bar { left: 50%; right: auto; transform: translateX(-50%); padding: 7px; border: 1px solid var(--site-border); border-radius: var(--site-radius); background: var(--site-surface); }
 @media (max-width: 820px) {
   .journey-cards { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .intro-screen { padding-bottom: 120px; }
@@ -77,12 +87,20 @@
   .intro-cities button { width: min(30vw, 152px); aspect-ratio: 1.8; }
   .intro-actions [data-journey], #open-workshop { padding-inline: 10px; }
   .intro-actions .primary-button { gap: 9px; padding-inline: 13px; }
-  .journey-exhibit-actions { top: max(78px, calc(env(safe-area-inset-top) + 65px)); }
+  .journey-exhibit-actions { left: 12px; right: 99px; transform: none; align-items: flex-start; flex-wrap: wrap; gap: 5px; }
+  .journey-exhibit-actions span { flex-basis: 100%; }
+  .journey-exhibit-actions .icon-button { min-height: 40px; padding-inline: 7px; font-size: 11px; }
+  .game-shell[data-screen="exhibit"] .game-header { padding-inline: 12px; }
 }
 @media (max-width: 540px) {
-  .journey-cards { grid-template-columns: minmax(0,1fr); }
+  .journey-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .journey-card-copy { padding: 8px 4px; text-align: center; }
+  .journey-card-copy > small { display: none; }
+  .journey-card-copy h3 { font-size: 15px; margin: 2px 0; }
+  .journey-card-copy p { font-size: 10px; margin: 5px 0; }
+  .journey-card-copy .icon-button { min-height: 38px; margin-top: 4px; width: 100%; font-size: 11px; padding-inline: 3px; }
   .journey-collection { padding: 18px; }
-  .journey-levels { grid-template-columns: repeat(5, minmax(0,1fr)); }
+  .journey-levels { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .intro-actions { gap: 6px; }
   .intro-actions button { min-height: 44px !important; font-size: 13px; }
 }
@@ -91,16 +109,13 @@
 .game-shell[data-city="aegean"] .level-number { color: #f4d5a0; }
 .game-shell[data-city="aegean"] .level-copy { border-left-color: #f4d5a080; }
 
-@media (max-width: 800px) {
-  .game-shell:is([data-city="aegean"], [data-city="shanghai"]) .level-copy {
-    max-width: min(290px, calc(100vw - 42px));
-  }
-}
+.game-shell[data-city="aegean"]:not([data-screen="intro"]) { --site-accent: #f5cc90; }
+.game-shell[data-city="shanghai"]:not([data-screen="intro"]) { --site-accent: #a3dcfa; }
 
 @media (min-width: 801px) and (max-width: 1260px) {
   .level-progress { top: 74px; }
   .level-progress li:not(:last-child)::after { width: 14px; }
-  .game-shell:is([data-screen="playing"], [data-screen="complete"]) :is(.level-copy, .status-panel) { top: 124px; }
+  .game-shell:is([data-screen="playing"], [data-screen="complete"]) .play-overview { top: 126px; }
 }
 
 .intro-copy-out { position: absolute; margin: 0; pointer-events: none; }
@@ -125,7 +140,7 @@
   background: linear-gradient(90deg, rgba(var(--home-shade), .96) 0%,
     rgba(var(--home-shade), .83) 24%, rgba(var(--home-shade), .32) 43%, transparent 74%);
 }
-.intro-screen:not([data-theme="rain"]) :is(.intro-actions, .intro-cities, .homepage-attribution) { pointer-events: auto; }
+.intro-screen:not([data-theme="rain"]) :is(.intro-actions, .intro-cities, .homepage-attribution, .home-preview) { pointer-events: auto; }
 .intro-screen:not([data-theme="rain"]) .intro-copy h1 span:last-child { color: var(--home-title); }
 .intro-screen:not([data-theme="rain"]) .intro-description { color: #f3eee5; }
 .homepage-attribution {
@@ -168,6 +183,7 @@
 .city-surface[data-mode="home"] .city-frame-feedback { top: 70%; left: 70%; }
 .city-frame-feedback button { pointer-events: auto; width: auto; padding-inline: 13px; }
 .journey-exhibit-actions button { pointer-events: auto; }
+.game-shell.exhibit-controls-hidden :is(.game-header, .journey-exhibit-actions) { visibility: hidden; }
 @media (max-width: 820px) {
   .intro-screen:not([data-theme="rain"]) {
     background: linear-gradient(to top, rgba(var(--home-shade), .98),

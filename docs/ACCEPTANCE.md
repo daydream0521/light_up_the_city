@@ -182,3 +182,33 @@ Playwright 汇总：3 个 spec 全部通过（1.9m）。
 - 一次生产预览中的 [雨夜首页](screenshots/v31-sequence-01.jpg) → [爱琴加载画面](screenshots/v31-sequence-02.jpg) → [爱琴实时首页](screenshots/v31-sequence-03.jpg) → [上海加载画面](screenshots/v31-sequence-04.jpg) → [上海实时首页](screenshots/v31-sequence-05.jpg)。另见 [手机首页](screenshots/v31-mobile.png)。
 - 生产构建和 Vitest 60 项通过。主题 Playwright 在开发环境和生产预览各通过 5 项，快速切换修复后分别复验。从空存档在 Chrome 再次连续通关 25 关，完成记录与个人最佳齐全。生产预览中工坊 3 项回归通过，包括独立浏览器分享挑战和草稿存储失败。
 - 浏览器实测使用 Windows Chrome 与 SwiftShader 软件 WebGL。实体移动设备与硬件渲染性能待验收。
+
+## v3.2 三城解谜与工坊
+
+### 主线与移动端
+
+- Chrome 从空存档先完成上海，再完成雨夜之城，最后完成爱琴余晖，逐关通过 25 关，取得 25 份个人最佳。首个章末进入待完成章节，三城完成后进入旅程终幕。「再玩一次」在同页清空主线进度与成绩，并返回第一关。
+- Chrome 的 390 × 844 触摸视口在三城实测放置、旋转和取回。工坊在该视口实测工具操作和属性抽屉。上海观赏的隐藏与恢复同步地图和外层控件。
+- 生产构建与 Vitest 62 项通过。Playwright 19 项分批通过。生产回归发现的手机结算误触已修正，手机自动下一关和工坊区域字段的测试定位已更新，并在最新版本复验通过。
+- 浏览器为 Windows 本机 Chrome 和 Edge，使用 ANGLE SwiftShader。实体手机与硬件渲染性能留待验收。
+
+### 界面对照
+
+| 页面 | 改版前 | 改版后 |
+| --- | --- | --- |
+| 港口解谜 | [桌面](screenshots/v32/before/desktop-board.png) · [手机](screenshots/v32/before/mobile-board.png) | [桌面](screenshots/v32/after/desktop-aegean-board.png) · [手机](screenshots/v32/after/mobile-aegean-board.png) |
+| 造光工坊 | [桌面](screenshots/v32/before/desktop-editor.png) · [手机](screenshots/v32/before/mobile-editor.png) | [桌面](screenshots/v32/after/desktop-editor.png) · [手机](screenshots/v32/after/mobile-editor.png) · [手机属性抽屉](screenshots/v32/after/mobile-properties.png) · [手机挑战结算](screenshots/v32/after/mobile-challenge-won.png) |
+| 城市收藏 | [桌面](screenshots/v32/before/desktop-collection.png) · [手机](screenshots/v32/before/mobile-collection.png) | [桌面](screenshots/v32/after/desktop-collection.png) · [手机](screenshots/v32/after/mobile-collection.png) |
+| 爱琴观赏 | [桌面](screenshots/v32/before/desktop-exhibit.png) · [手机](screenshots/v32/before/mobile-exhibit.png) | [桌面](screenshots/v32/after/desktop-exhibit.png) · [手机](screenshots/v32/after/mobile-exhibit.png) |
+
+器件特写 [雨夜之城](screenshots/v32/after/detail-rain-devices.png) · [爱琴余晖](screenshots/v32/after/detail-aegean-devices.png) · [两岸灯火](screenshots/v32/after/detail-shanghai-devices.png)。
+
+手机触摸实拍 [雨夜之城](screenshots/v32/after/mobile-rain-interaction.png) · [爱琴余晖](screenshots/v32/after/mobile-aegean-interaction.png) · [两岸灯火](screenshots/v32/after/mobile-shanghai-interaction.png)。
+
+### 工坊与兼容性
+
+Chrome 创建、试玩验证并保存三种主题作品后，用独立 Edge 浏览器打开链接并完成挑战。复制件保留城市、区域和设计初态。Edge 打开不含城市字段的旧分享链接和旧本地作品时，使用雨夜之城。Vitest 在本地验证发布处理器可保存新字段并保留原有通关验证约束。
+
+### 三城试听
+
+Chrome 从 Web Audio 主输出录制 [雨夜之城](audio/v32/rain.webm)、[爱琴余晖](audio/v32/aegean.webm)、[两岸灯火](audio/v32/shanghai.webm)和[上海演出起幕](audio/v32/shanghai-show.webm)。爱琴和上海的片段从切换主题时开始，包含交叉淡入。实测全局静音为零，三路音量拉至零后输出在测量噪声范围内。仅恢复环境音或操作音时均有独立输出。三个 12 秒立体声环境循环的接缝采样差均在同一轨道的常规采样差范围内。刷新后音量设置保留，观赏 iframe 未开辟额外音频输出。录音样本峰值均低于数字满幅的 14%。听感留待人工评价。

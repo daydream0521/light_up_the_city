@@ -12,11 +12,6 @@ async function tapCell(page: Page, x: number, z: number): Promise<void> {
   await page.touchscreen.tap(point.x, point.y);
 }
 
-async function advance(page: Page, expectedName: string): Promise<void> {
-  await page.locator('[data-action="next"]').tap();
-  await expect(page.locator('#level-name')).toHaveText(expectedName);
-}
-
 test('mobile touch plays the first three unified-rule levels', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -36,7 +31,7 @@ test('mobile touch plays the first three unified-rule levels', async ({ page }) 
   await tapCell(page, 3, 4);
   await expect(page.locator('#level-toast')).toBeVisible({ timeout: 8000 });
   await page.screenshot({ path: 'test-results/12-mobile-level-1-lit.png' });
-  await advance(page, '行囊初试');
+  await expect(page.locator('#level-name')).toHaveText('行囊初试');
 
   // 第 2 关：触屏放置（每次放置后需重新选择器件）。
   await expect(page.locator('#tool-dock')).toBeVisible();
@@ -51,7 +46,7 @@ test('mobile touch plays the first three unified-rule levels', async ({ page }) 
   await expect(page.locator('#level-toast')).toBeVisible({ timeout: 8000 });
   await expect(page.locator('#cond-lights')).toHaveText('1/1');
   await page.screenshot({ path: 'test-results/13-mobile-level-2-lit.png' });
-  await advance(page, '布光行囊');
+  await expect(page.locator('#level-name')).toHaveText('布光行囊');
 
   // 第 3 关：保留的 Reflection 第一关官方解（镜面 ×2 + 背灯镜 ×1）。
   await page.locator('[data-tool="mirror"]').tap();
@@ -63,8 +58,8 @@ test('mobile touch plays the first three unified-rule levels', async ({ page }) 
   await tapCell(page, 0, 3);
   await tapCell(page, 0, 3);
   await tapCell(page, 0, 3);
-  await page.screenshot({ path: 'test-results/14-mobile-level-3-lit.png' });
   await expect(page.locator('#level-toast')).toBeVisible({ timeout: 8000 });
   await expect(page.locator('#cond-lights')).toHaveText('1/1');
+  await page.screenshot({ path: 'test-results/14-mobile-level-3-lit.png' });
   expect(errors).toEqual([]);
 });

@@ -49,18 +49,25 @@
 .work-editor-head {
   position: absolute;
   z-index: 5;
-  inset: 98px auto auto 30px;
-  padding-left: 14px;
-  border-left: 1px solid rgba(105, 230, 242, .45);
+  inset: 88px 30px auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 63px;
+  padding: 8px 12px;
+  border: 1px solid var(--site-border);
+  border-radius: var(--site-radius);
+  background: var(--site-surface);
 }
-#work-state { margin: 6px 0 14px; color: #ffcf82; font-size: 12px; }
+#work-state { margin: 4px 0 0; color: #ffcf82; font-size: 12px; }
 .work-settings {
   position: absolute;
   z-index: 6;
-  top: 98px;
+  top: 168px;
   right: 30px;
-  width: 238px;
-  max-height: min(60vh, 410px);
+  width: 228px;
+  max-height: min(64vh, 470px);
   overflow: auto;
   padding: 4px 12px 10px;
 }
@@ -72,7 +79,8 @@
 }
 .work-settings:not([open]) { padding-bottom: 4px; }
 .work-settings label, .work-share { display: grid; gap: 4px; color: #bed4e6; font-size: 12px; }
-.work-settings > label { margin: 5px 0 9px; }
+.work-settings > label, .work-location { margin: 5px 0 9px; }
+.work-location { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
 #workshop-ui input, #workshop-ui select {
   width: 100%;
   min-width: 0;
@@ -91,44 +99,65 @@
 .work-controls {
   position: absolute;
   z-index: 5;
-  bottom: max(18px, env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(520px, calc(100% - 24px));
+  top: 168px;
+  left: 30px;
+  width: 174px;
   display: grid;
   gap: 8px;
   padding: 10px;
 }
-.work-selection { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
-.work-selection p { margin: 0; color: #ffcf82; font-size: 13px; }
-.work-selection .work-actions { gap: 5px; }
-.work-palette { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
+#workshop-ui .work-controls h3 { padding: 3px 0; color: var(--site-accent); font-size: 13px; }
+.work-inspector { position: absolute; z-index: 6; right: 30px; bottom: 22px; width: 228px; padding: 10px; }
+.work-inspector p { margin: 0 0 8px; color: #ffcf82; font-size: 13px; }
+.work-inspector .work-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.work-palette { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+#workshop-ui .work-palette .icon-button { display: grid; justify-items: center; align-content: center; gap: 4px; min-height: 57px; padding: 2px; font-size: 12px; }
+.work-palette .device-icon { color: var(--site-accent); }
 .work-commands { display: flex; flex-wrap: wrap; gap: 5px; }
-.work-commands button:last-child { margin-left: auto; }
+#workshop-ui .work-commands button { min-height: 34px; font-size: 11px; }
+.work-settings-share { margin-top: 10px; }
+.work-settings-share .work-share { margin-top: 8px; }
 .work-play-actions { position: absolute; z-index: 8; right: 30px; top: 73px; justify-content: end; }
 .work-result .work-actions { justify-content: center; }
 .work-result h2 { overflow-wrap: anywhere; }
 .work-link-error { position: absolute; z-index: 6; right: 16px; bottom: 16px; max-width: calc(100% - 32px); padding: 12px; color: #ffd2aa; font-size: 14px; }
-.game-shell:is([data-screen="trial"], [data-screen="challenge"]) :is(.level-copy, .status-panel) { top: 132px; }
+.game-shell:is([data-screen="trial"], [data-screen="challenge"]) .play-overview { top: 128px; }
 .game-shell:is([data-screen="trial"], [data-screen="challenge"]) #level-name { overflow-wrap: anywhere; }
 
 @media (max-width: 800px) {
   .work-library { top: 68px; }
-  .work-editor-head { inset: 64px 12px auto; padding-left: 8px; }
-  .work-editor-head .work-actions { margin-top: 6px; }
-  #work-editor-title { font-size: 22px !important; }
-  #work-state { margin: 3px 0 0; }
-  .work-settings { top: 64px; right: 12px; width: 106px; }
-  .work-settings[open] { top: 114px; width: min(266px, calc(100% - 24px)); max-height: 48vh; }
-  .work-controls { bottom: max(10px, env(safe-area-inset-bottom)); padding: 7px; gap: 5px; }
-  .work-palette button { padding-inline: 2px !important; font-size: 12px; }
-  .work-play-actions { top: 65px; right: 12px; }
-  .game-shell:is([data-screen="trial"], [data-screen="challenge"]) .status-panel { top: auto; }
-  .game-shell:is([data-screen="trial"], [data-screen="challenge"]) .level-copy { top: 115px; left: 12px; }
+  .work-editor-head { inset: 63px 12px auto; padding: 6px 8px; }
+  .work-editor-head .work-actions { flex-wrap: nowrap; gap: 4px; }
+  #work-editor-title { font-size: 19px !important; white-space: nowrap; }
+  #work-state { margin: 3px 0 0; font-size: 11px; }
+  #workshop-ui .work-editor-head .icon-button, #workshop-ui .work-editor-head .primary-button { padding-inline: 7px; font-size: 12px; }
+  .work-controls { inset: auto 8px max(8px, env(safe-area-inset-bottom)); width: auto; padding: 7px; gap: 5px; }
+  #workshop-ui .work-controls h3 { display: none; }
+  #work-feedback { min-height: 2.75em; font-size: 11px; }
+  .work-palette { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  #workshop-ui .work-palette .icon-button { min-height: 48px; font-size: 11px; }
+  .work-palette .device-icon { width: 19px; height: 19px; }
+  .work-settings { top: auto; right: 12px; bottom: calc(var(--work-toolbar-bottom, 128px) + 8px); width: auto; }
+  .work-settings[open] { z-index: 7; width: min(320px, calc(100% - 24px)); max-height: 48dvh; }
+  .work-settings summary { padding: 6px 0; font-size: 12px; }
+  .work-settings[open] + .work-inspector { visibility: hidden; }
+  .work-inspector { right: auto; left: 12px; bottom: calc(var(--work-toolbar-bottom, 128px) + 8px); width: min(226px, calc(100% - 144px)); padding: 7px; }
+  .work-inspector .work-actions { grid-template-columns: repeat(4, 1fr); }
+  #workshop-ui .work-inspector .icon-button { min-height: 36px; padding-inline: 2px; font-size: 11px; }
+  .work-play-actions { top: 62px; right: 12px; }
+  .work-result[data-phase="won"] {
+    top: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    padding: 14px;
+    animation-name: work-result-enter;
+  }
+  .game-shell:is([data-screen="trial"], [data-screen="challenge"]) .play-overview { top: 114px; }
 }
 
-@media (max-height: 580px) and (min-width: 640px) {
-  .work-editor-head, .work-settings { top: 74px; }
-  .work-editor-head .work-actions { max-width: 140px; }
-  .work-controls { bottom: 8px; }
+@keyframes work-result-enter { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+@media (max-height: 580px) and (min-width: 801px) {
+  .work-editor-head { top: 65px; }
+  .work-controls, .work-settings { top: 141px; }
 }

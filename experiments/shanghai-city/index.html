@@ -15,14 +15,15 @@
     #scene-retry { top: calc(45% + 36px); padding: 8px 14px; color: inherit; border: 1px solid #94a8b4; border-radius: 6px; }
     [hidden] { display: none !important; }
   </style>
+  <link rel="stylesheet" href="../../src/experiments/viewing.css">
   <link id="scene-style" rel="stylesheet" href="../../src/experiments/shanghai-city/style.css">
   <title>两岸灯火 · Shanghai in Lights</title>
 </head>
 <body>
   <main id="view" aria-label="上海外滩与陆家嘴三维场景"></main>
-  <header class="chrome"><h1>两岸灯火</h1><p>Shanghai in Lights</p></header>
-  <button id="hide" aria-controls="panel" aria-expanded="true" title="隐藏或恢复界面（H）">隐藏界面</button>
-  <section id="panel" class="chrome" aria-label="观赏控制">
+  <header class="chrome view-title"><h1>两岸灯火</h1><p>Shanghai in Lights</p></header>
+  <button id="hide" class="view-visibility" aria-controls="panel" aria-expanded="true" title="隐藏或恢复界面（H）">隐藏界面</button>
+  <section id="panel" class="chrome view-controls" aria-label="观赏控制">
     <nav aria-label="场景机位">
       <button data-view="city" aria-pressed="true">两岸全景</button>
       <button data-view="bund">外滩望江</button>
@@ -38,10 +39,12 @@
       </select>
       <button id="show" aria-pressed="false">点亮两岸</button>
     </div>
-    <div class="time">
+    <div class="view-timeline">
       <button id="play" aria-label="播放昼夜" aria-pressed="false">▶</button>
-      <label for="time" id="phase">蓝调时刻</label>
-      <input id="time" type="range" min="0" max="24" step=".01" value="19.35">
+      <div class="scrub">
+        <label for="time" id="phase">蓝调时刻</label>
+        <input id="time" type="range" min="0" max="24" step=".01" value="19.35">
+      </div>
       <output id="clock" for="time">19:21</output>
     </div>
   </section>

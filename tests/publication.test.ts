@@ -21,6 +21,7 @@ describe('publication eligibility', () => {
   it('accepts a first legal win after metadata edits and only stores public fields', async () => {
     const data = candidate();
     data.puzzle.name = '新的名字';
+    data.puzzle.city = 2;
     data.puzzle.district = 1;
     const store = insert();
     const response = await postPublication(request({ ...data, verified: false, creatorMoves: 0 }), store);

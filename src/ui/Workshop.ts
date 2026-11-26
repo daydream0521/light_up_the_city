@@ -1,22 +1,25 @@
+import { CITIES, type CityIndex } from '../game/journey';
 import type { Direction, GridPoint, PieceKind } from '../game/levels';
 import { initialReflectionState, placementZones, traceReflection } from '../game/reflection';
 import {
-  DISTRICTS, NAME_LIMIT, PIECE_KINDS, deleteWork, newPuzzle, puzzleLevel, readWorks, saveWork, shareLink,
+  NAME_LIMIT, PIECE_KINDS, deleteWork, newPuzzle, puzzleLevel, readWorks, saveWork, shareLink,
   type Puzzle, type Work,
 } from '../game/workshop';
 import type { TrialSolution } from '../game/reflectionPlay';
 import type { CityScene } from '../scene/CityScene';
-import { TOOL_LABELS } from './GameUI';
+import { deviceIcon, TOOL_LABELS } from './GameUI';
 
 type EditorTool = PieceKind | 'source' | 'select' | 'move';
 type PlayMode = 'trial' | 'challenge';
 
 interface Callbacks {
-  showWorkshop: (editing: boolean) => void;
+  showWorkshop: (editing: boolean, city: CityIndex) => void;
+  entranceCity: () => CityIndex;
   play: (puzzle: Puzzle, mode: PlayMode) => void;
   home: () => void;
   reset: () => void;
   begin: () => void;
+  sound: () => void;
 }
 
 const button = (action: string, label: string, style = 'icon-button') =>
@@ -33,6 +36,7 @@ export class Workshop {
   private selected: GridPoint | null = null;
   private tool: EditorTool = 'select';
   private shared: Puzzle | null = null;
+  private entranceCity: CityIndex = 0;
 
   constructor(shell: HTMLElement, private readonly scene: CityScene, private readonly callbacks: Callbacks) {
     shell.insertAdjacentHTML('beforeend', `
@@ -55,18 +59,33 @@ export class Workshop {
               ${button('trial', '试玩', 'primary-button')}
             </div>
           </header>
+          <aside class="work-controls work-surface">
+            <h3>器件库</h3>
+            <div class="work-palette" role="group" aria-label="编辑工具">
+              ${button('tool-select', deviceIcon('select') + '选中')}
+              ${button('tool-source', deviceIcon('source') + '光塔')}
+              ${PIECE_KINDS.map((kind) => button(`tool-${kind}`, deviceIcon(kind) + TOOL_LABELS[kind])).join('')}
+            </div>
+            <div class="work-commands">${button('undo', '撤销')}${button('clear', '清空预置')}</div>
+            <p id="work-feedback" class="work-message" role="status"></p>
+          </aside>
           <details class="work-settings work-surface">
-            <summary>关卡设置</summary>
+            <summary>关卡与器件属性</summary>
             <label>关卡名称<input id="work-name" maxlength="${NAME_LIMIT}"></label>
-            <label>城市街区<select id="work-district">${DISTRICTS.map((name, i) => `<option value="${i}">${name}</option>`).join('')}</select></label>
+            <div class="work-location">
+              <label>城市主题<select id="work-city">${CITIES.map((city, i) => `<option value="${i}">${city.name}</option>`).join('')}</select></label>
+              <label>区域<select id="work-district"></select></label>
+            </div>
             <label>背灯目标<input id="work-target" type="number" min="1" max="24" inputmode="numeric" required></label>
             <fieldset><legend>玩家库存</legend>
               ${PIECE_KINDS.map((kind) => `<label>${TOOL_LABELS[kind]}<input id="work-stock-${kind}" type="number" min="0" max="24" inputmode="numeric" required></label>`).join('')}
             </fieldset>
+            <div class="work-settings-share">
+              ${button('share', '分享链接')}
+              <label id="work-share" class="work-share" hidden>分享链接<input id="work-url" readonly></label>
+            </div>
           </details>
-          <div class="work-controls work-surface">
-            <p id="work-feedback" class="work-message" role="status"></p>
-            <div id="work-selection" class="work-selection">
+          <div class="work-inspector work-surface" id="work-selection">
               <p id="work-piece"></p>
               <div class="work-actions">
                 ${button('rotate', '旋转')}
@@ -74,18 +93,6 @@ export class Workshop {
                 ${button('move', '移动')}
                 ${button('remove', '删除')}
               </div>
-            </div>
-            <div class="work-palette" role="group" aria-label="编辑工具">
-              ${button('tool-select', '选中')}
-              ${button('tool-source', '光塔')}
-              ${PIECE_KINDS.map((kind) => button(`tool-${kind}`, TOOL_LABELS[kind])).join('')}
-            </div>
-            <div class="work-commands">
-              ${button('undo', '撤销')}
-              ${button('clear', '清空预置')}
-              ${button('share', '分享链接')}
-            </div>
-            <label id="work-share" class="work-share" hidden>分享链接<input id="work-url" readonly></label>
           </div>
         </section>
         <div id="work-play" hidden>
@@ -114,7 +121,10 @@ export class Workshop {
       if (target) this.act(target.dataset.work!, target.dataset.id);
     });
     this.root.addEventListener('change', (event) => this.editSetting(event.target as HTMLInputElement | HTMLSelectElement));
-    shell.querySelector('#open-workshop')!.addEventListener('click', () => this.library());
+    shell.querySelector('#open-workshop')!.addEventListener('click', () => {
+      this.entranceCity = this.callbacks.entranceCity();
+      this.library();
+    });
   }
 
   private get puzzle(): Puzzle { return this.work.puzzle; }
@@ -144,7 +154,7 @@ export class Workshop {
   private library(): void {
     if (!this.leaveEditor()) return;
     this.hide();
-    this.callbacks.showWorkshop(false);
+    this.callbacks.showWorkshop(false, this.entranceCity);
     this.find('#work-library').hidden = false;
     this.renderLibrary();
   }
@@ -161,7 +171,7 @@ export class Workshop {
           ${button('edit', '编辑')}${button('saved-trial', '试玩')}${button('saved-share', '分享链接')}
           ${button('copy', '复制')}${button('delete', '删除')}</div>`;
         row.querySelector('h3')!.textContent = work.puzzle.name;
-        row.querySelector('span')!.textContent = work.verified ? '已验证' : '草稿';
+        row.querySelector('span')!.textContent = `${CITIES[work.puzzle.city ?? 0].name} · ${work.verified ? '已验证' : '草稿'}`;
         row.querySelector('time')!.textContent = dateFormat.format(work.updated);
         row.querySelectorAll<HTMLButtonElement>('button').forEach((action) => { action.dataset.id = work.id; });
         row.querySelector<HTMLButtonElement>('[data-work="saved-share"]')!.disabled = !work.verified;
@@ -175,7 +185,7 @@ export class Workshop {
 
   private editor(): void {
     this.hide();
-    this.callbacks.showWorkshop(true);
+    this.callbacks.showWorkshop(true, this.puzzle.city ?? 0);
     this.find('#work-editor').hidden = false;
     this.find('#work-share').hidden = true;
     const level = puzzleLevel(this.puzzle);
@@ -208,6 +218,7 @@ export class Workshop {
     this.find('.work-play-actions [data-work="library"]').hidden = trial;
     this.find('.work-play-actions [data-work="home"]').hidden = trial;
     const modal = this.find('#work-result');
+    modal.dataset.phase = phase;
     modal.hidden = phase === 'playing';
     if (phase === 'playing') return;
     const won = phase === 'won';
@@ -252,6 +263,7 @@ export class Workshop {
     const input = this.find<HTMLInputElement>('#work-url');
     input.value = url;
     this.find('#work-share').hidden = false;
+    this.find<HTMLDetailsElement>('.work-settings').open = true;
     try {
       await navigator.clipboard.writeText(url);
       this.feedback('已复制分享链接。');
@@ -302,7 +314,7 @@ export class Workshop {
     switch (action) {
       case 'home': if (this.leaveEditor()) this.callbacks.home(); return;
       case 'library': this.library(); return;
-      case 'new': this.open(this.newWork(newPuzzle()), false); return;
+      case 'new': this.open(this.newWork(newPuzzle(this.entranceCity)), false); return;
       case 'editor': this.editor(); return;
       case 'save': this.save(); return;
       case 'share': void this.share(); return;
@@ -320,7 +332,7 @@ export class Workshop {
       case 'undo': {
         const previous = this.history.pop();
         if (!previous) return;
-        const moveCamera = this.puzzle.district !== previous.puzzle.district;
+        const moveCamera = this.puzzle.city !== previous.puzzle.city || this.puzzle.district !== previous.puzzle.district;
         this.work.puzzle = previous.puzzle;
         this.selected = null;
         this.tool = 'select';
@@ -338,6 +350,14 @@ export class Workshop {
       return;
     }
     const kind = PIECE_KINDS.find((item) => input.id === `work-stock-${item}`);
+    if (input.id === 'work-city') {
+      const city = Number(input.value) as CityIndex;
+      if (city !== (this.puzzle.city ?? 0)) {
+        this.edit((puzzle) => { puzzle.city = city; }, false);
+        this.fillSettings();
+      }
+      return;
+    }
     if (input.id === 'work-district') {
       const district = Number(input.value);
       if (district !== this.puzzle.district) this.edit((puzzle) => { puzzle.district = district; }, false);
@@ -411,7 +431,8 @@ export class Workshop {
     this.history.push({ puzzle: previous, affectsPlay });
     this.work.puzzle = structuredClone(previous);
     change(this.puzzle);
-    this.afterEdit(affectsPlay, previous.district !== this.puzzle.district);
+    if (affectsPlay) this.callbacks.sound();
+    this.afterEdit(affectsPlay, previous.city !== this.puzzle.city || previous.district !== this.puzzle.district);
   }
 
   private afterEdit(affectsPlay: boolean, moveCamera: boolean): void {
@@ -421,6 +442,7 @@ export class Workshop {
     }
     this.dirty = true;
     this.find('#work-share').hidden = true;
+    if (moveCamera) this.callbacks.showWorkshop(true, this.puzzle.city ?? 0);
     this.updateEditor(affectsPlay || moveCamera, moveCamera);
   }
 
@@ -434,7 +456,11 @@ export class Workshop {
 
   private fillSettings(): void {
     this.find<HTMLInputElement>('#work-name').value = this.puzzle.name;
-    this.find<HTMLSelectElement>('#work-district').value = String(this.puzzle.district);
+    const city = this.puzzle.city ?? 0;
+    this.find<HTMLSelectElement>('#work-city').value = String(city);
+    const district = this.find<HTMLSelectElement>('#work-district');
+    district.replaceChildren(...CITIES[city].districts.map((name, index) => new Option(name, String(index))));
+    district.value = String(this.puzzle.district);
     this.find<HTMLInputElement>('#work-target').value = String(this.puzzle.lightTargets);
     for (const kind of PIECE_KINDS) this.find<HTMLInputElement>(`#work-stock-${kind}`).value = String(this.puzzle.inventory[kind]);
   }

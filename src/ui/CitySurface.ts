@@ -11,7 +11,7 @@ export class CitySurface {
   private mode: CityMode = 'home';
   private timeout = 0;
 
-  constructor(shell: HTMLElement) {
+  constructor(shell: HTMLElement, onShow: (playing: boolean) => void) {
     this.root.className = 'city-surface';
     this.root.hidden = true;
     this.root.innerHTML = `
@@ -32,7 +32,14 @@ export class CitySurface {
 
     window.addEventListener('message', ({ origin, source, data }) => {
       if (origin !== location.origin || !this.frame || source !== this.frame.contentWindow) return;
-      if (data?.type === 'city-frame-failed') this.failed();
+      if (data?.type === 'city-frame-failed') {
+        this.failed();
+        if (this.mode !== 'home') onShow(false);
+      }
+      if (this.mode !== 'home' && data?.type === 'city-frame-show' && typeof data.playing === 'boolean') onShow(data.playing);
+      if (this.mode !== 'home' && data?.type === 'city-frame-controls' && typeof data.hidden === 'boolean') {
+        shell.classList.toggle('exhibit-controls-hidden', data.hidden);
+      }
       if (data?.type !== 'city-frame-ready') return;
       if (data.mode !== this.mode) { this.sendMode(); return; }
       window.clearTimeout(this.timeout);

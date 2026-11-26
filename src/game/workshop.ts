@@ -1,3 +1,4 @@
+import { CITIES, type CityIndex } from './journey';
 import { DISTRICT_CENTERS, type Direction, type GridPoint, type LevelConfig, type PieceKind } from './levels';
 
 import { initialReflectionState, traceReflection } from './reflection';
@@ -5,7 +6,6 @@ import type { TrialSolution } from './reflectionPlay';
 
 export const BOARD_SIZE = 5;
 export const PIECE_KINDS = ['mirror', 'splitter', 'single', 'checkpoint'] as const;
-export const DISTRICTS = ['住宅街区', '商业街区', '工业街区', '市政街区'];
 export const NAME_LIMIT = 32;
 
 export interface Preset {
@@ -17,6 +17,7 @@ export interface Preset {
 
 export interface Puzzle {
   name: string;
+  city?: CityIndex;
   district: number;
   source: GridPoint;
   sourceDirection: Direction;
@@ -34,17 +35,18 @@ export interface Work {
   puzzle: Puzzle;
 }
 
-export function newPuzzle(): Puzzle {
+export function newPuzzle(city: CityIndex = 0): Puzzle {
   return {
-    name: '未命名关卡', district: 0, source: [0, 2], sourceDirection: 0, sourceRotatable: false,
+    name: '未命名关卡', city, district: 0, source: [0, 2], sourceDirection: 0, sourceRotatable: false,
     pieces: [], inventory: { mirror: 0, splitter: 0, single: 0, checkpoint: 0 }, lightTargets: 1,
   };
 }
 
 export function puzzleLevel(puzzle: Puzzle): LevelConfig {
+  const city = puzzle.city ?? 0;
   return {
-    id: -1, name: puzzle.name, chapter: '造光工坊', subtitle: DISTRICTS[puzzle.district],
-    size: BOARD_SIZE, district: puzzle.district, districtCenter: DISTRICT_CENTERS[puzzle.district],
+    id: -1, name: puzzle.name, chapter: '造光工坊', subtitle: CITIES[city].districts[puzzle.district], city: city || undefined,
+    size: BOARD_SIZE, district: puzzle.district, districtCenter: city === 0 ? DISTRICT_CENTERS[puzzle.district] : [0, 0],
     source: puzzle.source, sourceDirection: puzzle.sourceDirection, parMoves: 0,
     reflection: {
       sourceRotatable: puzzle.sourceRotatable, lightTargets: puzzle.lightTargets,
@@ -110,9 +112,10 @@ export function readSharedPuzzle(encoded: string): Puzzle | null {
 export function parsePuzzle(value: unknown): Puzzle | null {
   const capacity = BOARD_SIZE ** 2 - 1;
   if (!object(value)) return null;
-  const { name, district, source, sourceDirection, sourceRotatable, pieces, inventory, lightTargets } = value;
+  const { name, city, district, source, sourceDirection, sourceRotatable, pieces, inventory, lightTargets } = value;
   if (typeof name !== 'string' || !name.trim() || name.length > NAME_LIMIT
-    || !integer(district, 0, DISTRICTS.length - 1) || !isBoardCell(source)
+    || (city !== undefined && city !== 0 && city !== 1 && city !== 2)
+    || !integer(district, 0, CITIES[0].districts.length - 1) || !isBoardCell(source)
     || !integer(sourceDirection, 0, 3) || typeof sourceRotatable !== 'boolean'
     || !Array.isArray(pieces) || pieces.length > capacity || !object(inventory)
     || !integer(lightTargets, 1, capacity)) return null;
@@ -132,5 +135,5 @@ export function parsePuzzle(value: unknown): Puzzle | null {
     occupied.add(piece.at.join(','));
     presets.push({ kind, at: piece.at, state: piece.state, locked: piece.locked });
   }
-  return { name, district, source, sourceDirection: sourceDirection as Direction, sourceRotatable, pieces: presets, inventory: counts, lightTargets };
+  return { name, city, district, source, sourceDirection: sourceDirection as Direction, sourceRotatable, pieces: presets, inventory: counts, lightTargets };
 }

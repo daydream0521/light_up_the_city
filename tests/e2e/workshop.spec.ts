@@ -24,7 +24,7 @@ test('draft recovery, trial verification and self-contained sharing', async ({ p
   page.on('pageerror', (error) => errors.push(error.message));
   await create(page);
   await page.getByLabel('关卡名称').fill('运河旁的光');
-  await page.getByLabel('城市街区').selectOption('1');
+  await page.getByRole('combobox', { name: '区域', exact: true }).selectOption('1');
   await page.getByLabel('背灯镜', { exact: true }).fill('1');
   await page.getByLabel('背灯目标').fill('1');
   await action(page, 'tool-mirror').click();
@@ -49,14 +49,14 @@ test('draft recovery, trial verification and self-contained sharing', async ({ p
   await expect(page.getByRole('heading', { name: '运河旁的光' })).toBeVisible();
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await expect(page.getByLabel('关卡名称')).toHaveValue('运河旁的光');
-  await expect(page.getByLabel('城市街区')).toHaveValue('1');
+  await expect(page.getByRole('combobox', { name: '区域', exact: true })).toHaveValue('1');
   await expect(page.getByLabel('背灯镜', { exact: true })).toHaveValue('1');
   await clickCell(page, 3, 2);
   await expect(page.locator('#work-piece')).toHaveText('镜面 · / · 可调整');
   await page.screenshot({ path: 'test-results/workshop-editor.png', scale: 'css' });
 
   await action(page, 'trial').click();
-  await expect(page.locator('#level-number')).toHaveText('编辑器试玩');
+  await expect(page.locator('#level-number')).toHaveText('编辑器试玩 · 雨夜之城');
   await clickCell(page, 3, 3);
   await expect(page.locator('#move-count')).toHaveText('0');
   await clickCell(page, 3, 2);
@@ -186,4 +186,47 @@ test.describe('touch editor', () => {
     await action(page, 'save').tap();
     await expect(page.locator('#work-state')).toHaveText('已验证 · 已保存');
   });
+});
+
+test('theme and region are restored and shared with an independently verified design', async ({ page, browser }) => {
+  for (const [theme, city, region] of [['aegean', '1', '剧场'], ['shanghai', '2', '东方明珠']]) {
+    await page.goto('/');
+    await page.locator(`#intro [data-journey="theme-${theme}"]`).click();
+    await page.locator('#open-workshop').click();
+    await page.getByRole('button', { name: '新建关卡' }).click();
+    await expect(page.locator('#work-city')).toHaveValue(city);
+    await page.locator('#work-district').selectOption({ label: region });
+    await page.locator('#work-name').fill(`试灯 · ${region}`);
+    await action(page, 'tool-single').click();
+    await clickCell(page, 2, 2);
+    await action(page, 'trial').click();
+    await expect(page.locator('.game-shell')).toHaveAttribute('data-city', theme);
+    await clickCell(page, 2, 2);
+    await expect(page.getByRole('heading', { name: '试玩通过' })).toBeVisible();
+    await page.locator('#work-result [data-work="editor"]').click();
+    await page.locator('#work-city').selectOption('0');
+    await expect(action(page, 'share')).toBeEnabled();
+    await page.locator('#work-city').selectOption(city);
+    await expect(action(page, 'share')).toBeEnabled();
+    await action(page, 'save').click();
+    await page.reload();
+    await page.locator('#open-workshop').click();
+    await page.locator('.work-entry').filter({ hasText: `试灯 · ${region}` }).getByRole('button', { name: '编辑', exact: true }).click();
+    await expect(page.locator('#work-city')).toHaveValue(city);
+    await expect(page.locator('#work-district')).toHaveValue('2');
+    await action(page, 'share').click();
+    const guest = await browser.newContext({ deviceScaleFactor: Number(process.env.E2E_RENDER_SCALE ?? 1) });
+    try {
+      const challenge = await guest.newPage();
+      await challenge.goto(await page.locator('#work-url').inputValue());
+      await challenge.locator('#work-result [data-work="begin"]').click();
+      await expect(challenge.locator('.game-shell')).toHaveAttribute('data-city', theme);
+      await expect(challenge.locator('#level-subtitle')).toHaveText(region);
+      await clickCell(challenge, 2, 2);
+      await expect(challenge.getByRole('heading', { name: '挑战成功' })).toBeVisible();
+      await challenge.getByRole('button', { name: '复制到我的关卡' }).click();
+      await expect(challenge.locator('#work-city')).toHaveValue(city);
+      await expect(challenge.locator('#work-state')).toHaveText('草稿 · 已保存');
+    } finally { await guest.close(); }
+  }
 });

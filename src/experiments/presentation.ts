@@ -3,13 +3,14 @@ export type CityMode = 'home' | 'view' | 'show';
 let reportedMode: string | undefined;
 
 export function connectPresentation(applyMode: (mode: CityMode) => void): void {
-  if (!document.querySelector<HTMLLinkElement>('link[rel="stylesheet"]')?.sheet) {
+  if (Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')).some(link => !link.sheet)) {
     throw new Error('City stylesheet was not loaded');
   }
   let current: CityMode | undefined;
   const requested = new URLSearchParams(location.search).get('exhibit');
   apply(requested === 'home' || requested === 'show' ? requested : 'view');
   if (window.parent === window) return;
+  document.documentElement.dataset.embedded = '';
   window.addEventListener('message', ({ origin, source, data }) => {
     if (origin !== location.origin || source !== window.parent || data?.type !== 'city-frame-mode') return;
     const mode = data.mode;
@@ -23,6 +24,14 @@ export function connectPresentation(applyMode: (mode: CityMode) => void): void {
     document.documentElement.dataset.sceneMode = mode;
     applyMode(mode);
   }
+}
+
+export function reportCityShow(playing: boolean): void {
+  if (window.parent !== window) window.parent.postMessage({ type: 'city-frame-show', playing }, location.origin);
+}
+
+export function reportCityControls(hidden: boolean): void {
+  if (window.parent !== window) window.parent.postMessage({ type: 'city-frame-controls', hidden }, location.origin);
 }
 
 export function firstCityFrame(): void {

@@ -23,14 +23,14 @@ test('the three themes orbit live, preserve progress and reuse the selected map 
     await expect(frame(page).locator('html')).toHaveAttribute('data-scene-mode', 'home');
     await expect(frame(page).locator('#time')).toBeHidden();
     await expect(frame(page).locator('#orbit')).toHaveAttribute('aria-pressed', 'true');
-    await expect(action(page)).toHaveText('预览城市');
+    await expect(action(page)).toHaveText('开始点亮');
     if (process.env.V31_SHOTS) {
       await expect(surface(page).locator('iframe')).toHaveCSS('opacity', '1');
       await page.screenshot({ path: `test-results/v31-home-${key}.png`, scale: 'css', timeout: 30_000 });
     }
 
     const liveFrame = await surface(page).locator('iframe').elementHandle();
-    await action(page).click();
+    await page.locator('#intro [data-journey="preview"]').click();
     await expect(page.locator('#intro')).toBeHidden();
     await expect(frame(page).locator('#time')).toBeVisible();
     await expect(frame(page).locator('#orbit')).toHaveAttribute('aria-pressed', 'false');
@@ -167,7 +167,7 @@ test.describe('phone and reduced motion', () => {
     await expect(frame(page).locator('#orbit')).toHaveAttribute('aria-pressed', 'false');
     if (process.env.V31_SHOTS) await page.screenshot({ path: 'test-results/v31-mobile.png', scale: 'css' });
     await select(page, 'shanghai').tap();
-    await expect(action(page)).toHaveText('预览城市');
+    await expect(action(page)).toHaveText('开始点亮');
     await select(page, 'aegean').tap();
     await expect(action(page)).toHaveText('开始点亮');
     await action(page).tap();
@@ -176,6 +176,10 @@ test.describe('phone and reduced motion', () => {
     await expect(title(page)).toHaveText('爱琴余晖');
     await page.locator('#open-workshop').tap();
     await expect(page.locator('#work-library')).toBeVisible();
+    await expect(surface(page)).toHaveAttribute('data-city', 'aegean');
+    await page.getByRole('button', { name: '新建关卡' }).tap();
+    await expect(page.locator('#work-state')).toHaveText('草稿 · 未保存');
+    await expect(page.locator('#work-city')).toHaveValue('1');
     await expect(surface(page).locator('iframe')).toHaveCount(0);
   });
 });

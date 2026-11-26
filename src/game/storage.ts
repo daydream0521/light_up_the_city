@@ -1,3 +1,4 @@
+import { isLevelUnlocked } from './journey';
 import { LEVELS } from './levels';
 
 export interface BestScore {
@@ -15,7 +16,7 @@ export interface SaveData {
 const STORAGE_KEY = 'light-up-the-city-v3';
 const LEGACY_KEY = 'light-up-the-city-v2';
 const LEVEL_COUNT = LEVELS.length;
-const DEFAULT_SAVE: SaveData = { currentLevel: 0, completed: [], best: {}, muted: true };
+const newSave = (muted = true): SaveData => ({ currentLevel: 0, completed: [], best: {}, muted });
 
 /** 关卡重排后旧进度按 ID 对应不上新关卡，直接重置进度，仅保留静音偏好。 */
 function legacyMuted(): boolean | null {
@@ -35,17 +36,17 @@ export function loadSave(): SaveData {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === null) {
       const migrated = legacyMuted();
-      return { ...DEFAULT_SAVE, best: {}, muted: migrated ?? DEFAULT_SAVE.muted };
+      return newSave(migrated ?? true);
     }
     const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== 'object') return { ...DEFAULT_SAVE, best: {} };
+    if (!value || typeof value !== 'object') return newSave();
     const data = value as Partial<SaveData>;
     const completed = Array.isArray(data.completed)
       ? [...new Set(data.completed.filter((item): item is number => Number.isInteger(item) && item >= 0 && item < LEVEL_COUNT))].sort((a, b) => a - b)
       : [];
-    const currentLevel = Number.isInteger(data.currentLevel)
-      ? Math.max(0, Math.min(LEVEL_COUNT - 1, data.currentLevel!))
-      : Math.min(completed.length, LEVEL_COUNT - 1);
+    const currentLevel = typeof data.currentLevel === 'number' && isLevelUnlocked(data.currentLevel, completed)
+      ? data.currentLevel
+      : LEVELS.find(level => !completed.includes(level.id) && isLevelUnlocked(level.id, completed))?.id ?? LEVEL_COUNT - 1;
     const best: Record<number, BestScore> = {};
     if (data.best && typeof data.best === 'object') {
       for (const [key, score] of Object.entries(data.best)) {
@@ -59,7 +60,7 @@ export function loadSave(): SaveData {
     }
     return { currentLevel, completed, best, muted: typeof data.muted === 'boolean' ? data.muted : true };
   } catch {
-    return { ...DEFAULT_SAVE, best: {} };
+    return newSave();
   }
 }
 
@@ -72,7 +73,7 @@ export function writeSave(data: SaveData): void {
 }
 
 export function clearProgress(muted: boolean): SaveData {
-  const data: SaveData = { ...DEFAULT_SAVE, best: {}, muted };
+  const data = newSave(muted);
   writeSave(data);
   return data;
 }

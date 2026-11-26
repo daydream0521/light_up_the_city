@@ -5,7 +5,7 @@ import {mix,smooth} from './geometry';
 import {sites} from './landmarks';
 import {setLights,setupLighting} from './lighting';
 import {makeRiver,riverLife} from './river';
-import { cityFrameFailed, connectPresentation, firstCityFrame } from '../presentation';
+import { cityFrameFailed, connectPresentation, firstCityFrame, reportCityControls, reportCityShow } from '../presentation';
 
 type Landmark=keyof typeof sites;
 const views={
@@ -123,6 +123,7 @@ function mount(){
   function showState(active:boolean){
     show.setAttribute('aria-pressed',String(active));
     show.textContent=active?'结束演出':'点亮两岸';
+    reportCityShow(active);
   }
   function finishShow(){
     if(showStart===null)return;
@@ -160,6 +161,7 @@ function mount(){
   function toggle(){
     const button=$('hide');
     const hidden=button.getAttribute('aria-expanded')==='true';
+    reportCityControls(hidden);
     document.querySelectorAll<HTMLElement>('.chrome').forEach(el=>{el.hidden=hidden;});
     button.setAttribute('aria-expanded',String(!hidden));
     button.textContent=hidden?'显示界面':'隐藏界面';

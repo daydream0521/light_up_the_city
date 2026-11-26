@@ -12,7 +12,11 @@ test('city collection previews all three maps and preserves progress', async ({ 
   await page.getByRole('button', { name: '城市收藏', exact: true }).click();
   await expect(page.locator('.journey-cards article')).toHaveCount(3);
   await page.screenshot({ path: 'test-results/v3-collection.png', scale: 'css' });
-  await expect(page.locator('[data-journey="level-9"]')).toBeDisabled();
+  for (const [city, first] of [[1, 9], [2, 17]]) {
+    await page.locator(`[data-journey="select-city-${city}"]`).click();
+    await expect(page.locator(`[data-journey="level-${first}"]`)).toBeEnabled();
+    await expect(page.locator(`[data-journey="level-${first + 1}"]`)).toBeDisabled();
+  }
   for (const city of CITIES) {
     await page.locator(`.journey-collection [data-journey="observe-${city.key}"]`).click();
     if (city.key === 'rain') {

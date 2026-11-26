@@ -8,6 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { DISTRICT_CENTERS, GRID_SIZE, LEVELS, OPTICS_HEIGHT, type GridPoint, type LevelConfig, type PieceKind } from '../game/levels';
 import type { ReflectionGameState, ReflectionTrace } from '../game/reflection';
 import { createCity, gridToWorld, type CityVisual } from './cityGeometry';
+import { addChapterBeacon, animateChapterFlame, createChapterDevice } from './chapterDevices';
 import { createChapterBoard } from './chapterBoard';
 import { createCityLife, type CityLife } from './cityLife';
 
@@ -41,7 +42,8 @@ const BRANCH_COLORS = [CYAN, MINT, '#b39dff', '#ffd18a'];
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 // 引擎方向 0=E 1=S 2=W 3=N；喷口默认朝 +Z（南）。
 const SOURCE_ROT_Y = [Math.PI / 2, 0, -Math.PI / 2, Math.PI];
-const KIND_LABELS: Record<PieceKind, string> = { mirror: '镜面', splitter: '分光镜', single: '背灯镜', checkpoint: '闸门' };
+const AEGEAN_BEAMS = ['#ffc16f', '#fff0b6', '#edac8b', '#f9dc86'];
+const SHANGHAI_BEAMS = ['#a4dcff', '#c0eff2', '#b9bbf6', '#f9cea3'];
 // 拾取/投影共用的平面高度：介于屋脊(≈1.74)与镜面面板(2.25)之间，斜视角下点选偏差最小。
 const PICK_HEIGHT = 1.95;
 
@@ -51,6 +53,9 @@ export class CityScene {
   private readonly camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 140);
   private readonly controls: OrbitControls;
   private readonly composer: EffectComposer;
+  private readonly sky = new THREE.HemisphereLight('#9dc5ed', '#0b1826', 2.15);
+  private readonly moon = new THREE.DirectionalLight('#b3d3ff', 2.65);
+  private readonly rim = new THREE.DirectionalLight('#286f9a', 1.1);
   private readonly city: CityVisual;
   private readonly cityLife: CityLife;
   private readonly clock = new THREE.Clock();
@@ -62,6 +67,10 @@ export class CityScene {
   private readonly zoneGroup = new THREE.Group();
   private readonly beamRuns: BeamRun[] = [];
   private readonly pulses: THREE.Mesh[] = [];
+  private readonly sourceFlames: THREE.Group[] = [];
+  private readonly pieceFlames: THREE.Group[] = [];
+  private readonly layoutObserver = new ResizeObserver(() => this.measureBoardArea());
+  private boardArea = { width: 0, height: 0, x: 0, y: 0 };
   private readonly lightLevels = [0, 0, 0, 0];
   private readonly lightTargets = [0, 0, 0, 0];
   private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -100,7 +109,11 @@ export class CityScene {
   private finaleClearAt = -1;
   private screen: 'intro' | 'level' | 'finale' = 'intro';
 
-  constructor(private readonly container: HTMLElement, private readonly onCell: (at: GridPoint) => void) {
+  constructor(
+    private readonly container: HTMLElement,
+    private readonly onCell: (at: GridPoint) => void,
+    private readonly onFreeView: () => void,
+  ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.65));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
@@ -132,9 +145,7 @@ export class CityScene {
     this.controls.autoRotateSpeed = 0.16;
     this.controls.target.set(0, 0.6, 0);
 
-    const hemisphere = new THREE.HemisphereLight('#9dc5ed', '#0b1826', 2.15);
-    this.scene.add(hemisphere);
-    const moon = new THREE.DirectionalLight('#b3d3ff', 2.65);
+    const moon = this.moon;
     moon.position.set(-10, 19, 7);
     moon.castShadow = true;
     moon.shadow.mapSize.set(2048, 2048);
@@ -145,10 +156,8 @@ export class CityScene {
     moon.shadow.camera.near = 1;
     moon.shadow.camera.far = 50;
     moon.shadow.bias = -0.0004;
-    this.scene.add(moon);
-    const rim = new THREE.DirectionalLight('#286f9a', 1.1);
-    rim.position.set(12, 8, -14);
-    this.scene.add(rim);
+    this.rim.position.set(12, 8, -14);
+    this.scene.add(this.sky, moon, this.rim);
 
     this.city = createCity();
     this.cityLife = createCityLife(this.city, this.reducedMotion);
@@ -195,7 +204,20 @@ export class CityScene {
       this.scene.add(board.root);
     }
     for (const [id, board] of this.chapterBoards) board.root.visible = id === city;
-    (this.scene.background as THREE.Color).set(city === 1 ? '#172330' : city === 2 ? '#081626' : '#050b18');
+    (this.scene.background as THREE.Color).set(city === 1 ? '#15282c' : city === 2 ? '#081626' : '#050b18');
+    this.sky.color.set(city === 1 ? '#e6d6ba' : '#9dc5ed');
+    this.sky.groundColor.set(city === 1 ? '#473726' : '#0b1826');
+    this.moon.color.set(city === 1 ? '#ffe2b3' : '#b3d3ff');
+    this.rim.color.set(city === 1 ? '#6595a1' : city === 2 ? '#6b797e' : '#286f9a');
+    this.rim.intensity = city === 1 ? .7 : 1.1;
+    const colors = city === 1 ? AEGEAN_BEAMS : city === 2 ? SHANGHAI_BEAMS : BRANCH_COLORS;
+    this.beamMaterials.forEach((material, index) => {
+      const color = colors[index];
+      material.core.color.set(color).lerp(new THREE.Color('#ffffff'), .5);
+      material.glow.color.set(color);
+      material.reflection.color.set(color);
+      material.endpoint = color;
+    });
   }
 
   showIntro(immediate = false): void {
@@ -217,10 +239,16 @@ export class CityScene {
     this.applyLevelControls();
     this.showChapterBoard(level.city);
     this.setBoard(level, trace, reflectionState);
+    this.layoutObserver.disconnect();
+    for (const selector of ['.play-overview', '.mirror-dock', '.work-editor-head', '.work-controls', '.work-settings']) {
+      const element = this.container.parentElement!.querySelector(selector);
+      if (element) this.layoutObserver.observe(element);
+    }
+    this.measureBoardArea();
     // gridToWorld 以 7 格棋盘为基准居中（x-3）；非 7 格关卡需把镜头对准实际棋盘中心。
     const boardOffset = ((this.level.size - 1) / 2 - 3) * GRID_SIZE;
     const center = new THREE.Vector3(this.level.districtCenter[0] + boardOffset, 0.75, this.level.districtCenter[1] + boardOffset);
-    this.moveCamera(center.clone().add(new THREE.Vector3(9.6, 12.2, 13.4)), center, this.cameraViewSize(13.6, 17.2), immediate ? 0 : 1.55);
+    this.moveCamera(center.clone().add(new THREE.Vector3(9.6, 12.2, 13.4)), center, 13.6, immediate ? 0 : 1.55);
   }
 
   setBoard(level: LevelConfig, trace: ReflectionTrace, state: ReflectionGameState): void {
@@ -234,19 +262,21 @@ export class CityScene {
   setReflection(state: ReflectionGameState, trace: ReflectionTrace): void {
     this.lastTrace = trace;
     this.disposeGroup(this.pieceGroup);
+    this.pieceFlames.length = 0;
     const reflection = this.level.reflection;
     const cpOver = trace.checkpointsPassed > trace.checkpointsTotal;
     reflection.pieces.forEach((piece, index) => {
       const lit = piece.kind === 'single' && trace.targets.some((target) => target.id === piece.id && target.powered);
       const active = piece.kind === 'checkpoint' && trace.checkpoints.some((checkpoint) => checkpoint.id === piece.id && checkpoint.activated);
       const hit = !trace.unhitPieces.includes(piece.id);
-      this.createPieceVisual(piece.kind, state.pieceStates[index], piece.locked, piece.id, piece.at, false, lit, active, hit, cpOver);
+      this.createPieceVisual(piece.kind, state.pieceStates[index], piece.locked, piece.at, false, lit, active, hit, cpOver);
     });
     state.placements.forEach((placement, index) => {
       const id = `放置${index + 1}`;
       const lit = placement.kind === 'single' && trace.targets.some((target) => target.id === id && target.powered);
       const hit = !trace.unhitPieces.includes(id);
-      this.createPieceVisual(placement.kind, placement.state, false, id, placement.at, true, lit, false, hit, cpOver);
+      const active = placement.kind === 'checkpoint' && trace.checkpoints.some(checkpoint => checkpoint.id === id && checkpoint.activated);
+      this.createPieceVisual(placement.kind, placement.state, false, placement.at, true, lit, active, hit, cpOver);
     });
     if (this.sourceNozzle) this.sourceNozzle.rotation.y = SOURCE_ROT_Y[state.sourceDirection];
     this.setBeam(trace);
@@ -280,7 +310,7 @@ export class CityScene {
     };
   }
 
-  private createPieceVisual(kind: PieceKind, pieceState: number, locked: boolean, id: string, at: GridPoint, placed: boolean, lit: boolean, cpActive: boolean, hit: boolean, cpOver: boolean): void {
+  private createPieceVisual(kind: PieceKind, pieceState: number, locked: boolean, at: GridPoint, placed: boolean, lit: boolean, cpActive: boolean, hit: boolean, cpOver: boolean): void {
     const root = new THREE.Group();
     root.position.copy(gridToWorld(this.level, at));
     const baseColor = placed ? '#2b4453' : kind === 'single' ? '#4a3a24' : kind === 'checkpoint' ? '#322a4d' : '#173849';
@@ -290,7 +320,7 @@ export class CityScene {
       : lit ? GOLD
         : cpActive ? '#b39dff'
           : hit ? CYAN : '#5a6b7a';
-    const ringIntensity = kind === 'checkpoint' && cpOver ? 2.4 : lit ? 2.6 : cpActive ? 2.0 : hit ? 1.3 : 0.25;
+    const ringIntensity = kind === 'checkpoint' && cpOver ? 1.8 : lit ? 1.65 : cpActive ? 1.45 : hit ? .85 : 0.25;
     const statusRing = new THREE.Mesh(
       new THREE.TorusGeometry(0.52, 0.03, 8, 40),
       new THREE.MeshStandardMaterial({ color: ringColor, emissive: ringColor, emissiveIntensity: ringIntensity, transparent: true, opacity: hit || lit || cpActive || cpOver ? 0.95 : 0.6 }),
@@ -298,7 +328,12 @@ export class CityScene {
     statusRing.rotation.x = Math.PI / 2;
     statusRing.position.y = 1.8;
     root.add(statusRing);
-    if (kind === 'checkpoint') {
+    if (this.level.city) {
+      const rotor = createChapterDevice(this.level.city, kind, lit, cpActive, this.pieceFlames);
+      rotor.rotation.y = kind === 'checkpoint' ? pieceState * Math.PI / 2
+        : kind === 'single' ? -pieceState * Math.PI / 2 : pieceState === 0 ? Math.PI / 4 : -Math.PI / 4;
+      root.add(rotor);
+    } else if (kind === 'checkpoint') {
       const axis = new THREE.Group();
       const material = new THREE.MeshStandardMaterial({ color: '#cdb3ff', emissive: '#8a63ff', emissiveIntensity: cpActive ? 2.4 : locked ? 0.5 : 0.95, roughness: 0.3, metalness: 0.4 });
       for (const side of [-1, 1]) {
@@ -309,7 +344,7 @@ export class CityScene {
       const gate = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.035, 8, 26, Math.PI), material);
       gate.position.y = OPTICS_HEIGHT + 0.4;
       axis.add(gate);
-      const lane = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.03, 0.03), new THREE.MeshBasicMaterial({ color: cpActive ? '#e4d6ff' : '#6c5a9e', transparent: true, opacity: 0.9 }));
+      const lane = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.03, 0.92), new THREE.MeshBasicMaterial({ color: cpActive ? '#e4d6ff' : '#6c5a9e', transparent: true, opacity: 0.9 }));
       lane.position.y = OPTICS_HEIGHT;
       axis.add(lane);
       axis.rotation.y = pieceState === 0 ? 0 : Math.PI / 2;
@@ -345,13 +380,8 @@ export class CityScene {
       root.add(rotor);
     }
     if (locked) {
-      const lock = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.035, 8, 20), new THREE.MeshStandardMaterial({ color: '#8b97a6', metalness: 0.8, roughness: 0.35 }));
-      lock.position.y = 1.62;
-      lock.rotation.x = Math.PI / 2;
-      root.add(lock);
+      this.addLockMarker(root);
     }
-    const label = placed ? `${KIND_LABELS[kind]} · 已放置` : `${KIND_LABELS[kind]} ${id}${locked ? ' · 固定' : ''}`;
-    root.add(this.createLabel(label, placed ? '#b9fbff' : kind === 'single' ? '#ffdaa0' : '#d4fbff', 3.05));
     this.pieceGroup.add(root);
   }
 
@@ -445,7 +475,7 @@ export class CityScene {
           map: this.glowTexture, color: powered ? GOLD : materials.endpoint, transparent: true,
           blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
         }));
-        endpoint.scale.setScalar(powered ? 1.45 : 0.7);
+        endpoint.scale.setScalar(powered ? .79 : .48);
         endpoint.position.copy(points.at(-1)!);
         this.beamGroup.add(endpoint);
       }
@@ -523,6 +553,7 @@ export class CityScene {
   }
 
   private enterFreeView(): void {
+    if (!this.reducedMotion) this.onFreeView();
     this.freeView = true;
     this.controls.enablePan = true;
     this.controls.minZoom = 0.4;
@@ -546,24 +577,29 @@ export class CityScene {
     const group = new THREE.Group();
     group.position.copy(position);
     this.addRoofBase(group, '#163a4b');
-    const material = new THREE.MeshStandardMaterial({ color: '#b9fbff', emissive: CYAN, emissiveIntensity: 1.7, roughness: 0.16, metalness: 0.2 });
-    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.26, 0), material);
-    crystal.position.y = OPTICS_HEIGHT;
-    crystal.rotation.z = Math.PI / 4;
-    group.add(crystal);
-    const cageMaterial = new THREE.MeshStandardMaterial({ color: '#5cc7d5', emissive: '#1b8b9c', emissiveIntensity: 0.8, metalness: 0.75, roughness: 0.25 });
-    for (let ring = 0; ring < 2; ring += 1) {
-      const mesh = new THREE.Mesh(new THREE.TorusGeometry(0.38 + ring * 0.12, 0.022, 8, 32), cageMaterial);
-      mesh.position.y = OPTICS_HEIGHT;
-      mesh.rotation.x = Math.PI / 2;
-      mesh.rotation.y = ring * Math.PI / 2;
-      group.add(mesh);
+    let color = CYAN;
+    if (this.level.city) {
+      color = addChapterBeacon(group, this.level.city, this.sourceFlames);
+    } else {
+      const material = new THREE.MeshStandardMaterial({ color: '#b9fbff', emissive: CYAN, emissiveIntensity: .64, roughness: 0.16, metalness: 0.2 });
+      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.26, 0), material);
+      crystal.position.y = OPTICS_HEIGHT;
+      crystal.rotation.z = Math.PI / 4;
+      group.add(crystal);
+      const cageMaterial = new THREE.MeshStandardMaterial({ color: '#5cc7d5', emissive: '#1b8b9c', emissiveIntensity: 0.35, metalness: 0.75, roughness: 0.25 });
+      for (let ring = 0; ring < 2; ring += 1) {
+        const mesh = new THREE.Mesh(new THREE.TorusGeometry(0.38 + ring * 0.12, 0.022, 8, 32), cageMaterial);
+        mesh.position.y = OPTICS_HEIGHT;
+        mesh.rotation.x = Math.PI / 2;
+        mesh.rotation.y = ring * Math.PI / 2;
+        group.add(mesh);
+      }
     }
-    const light = new THREE.PointLight(CYAN, 7, 6, 1.6);
+    const light = new THREE.PointLight(color, 2.4, 3.6, 1.6);
     light.position.y = OPTICS_HEIGHT + 0.25;
     group.add(light);
     const nozzle = new THREE.Group();
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 10), new THREE.MeshStandardMaterial({ color: '#b9fbff', emissive: CYAN, emissiveIntensity: 1.5, roughness: 0.2 }));
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.32, 10), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .7, roughness: .22 }));
     cone.rotation.x = Math.PI / 2;
     cone.position.z = 0.44;
     nozzle.add(cone);
@@ -571,11 +607,31 @@ export class CityScene {
     nozzle.rotation.y = SOURCE_ROT_Y[this.level.sourceDirection];
     group.add(nozzle);
     this.sourceNozzle = nozzle;
-    group.add(this.createLabel(this.level.reflection.sourceRotatable ? '光塔 · 可转向' : '光塔 · 方向固定', '#b9fbff', 2.95));
+    if (!this.level.reflection.sourceRotatable) this.addLockMarker(group);
     this.levelGroup.add(group);
   }
 
+  private addLockMarker(group: THREE.Group): void {
+    const material = new THREE.MeshBasicMaterial({ color: '#a1a9b6' });
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(.056, .013, 6, 12, Math.PI), material);
+    const lock = new THREE.Mesh(new THREE.BoxGeometry(.14, .083, .055), material);
+    handle.position.set(.29, 1.93, .34);
+    lock.position.set(.29, 1.89, .34);
+    group.add(handle, lock);
+  }
+
   private addRoofBase(group: THREE.Group, color: string): void {
+    const city = this.level.city;
+    if (city) {
+      const plinth = new THREE.Mesh(
+        new RoundedBoxGeometry(.99, .17, .99, 2, .039),
+        new THREE.MeshStandardMaterial({ color: city === 1 ? '#c6a784' : '#374f63', roughness: city === 1 ? .79 : .28, metalness: city === 1 ? .07 : .4 }),
+      );
+      plinth.position.y = 1.68;
+      plinth.receiveShadow = true;
+      group.add(plinth);
+      return;
+    }
     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.4 });
     const base = new THREE.Mesh(new RoundedBoxGeometry(0.9, 1.55, 0.9, 2, 0.055), material);
     base.position.y = 0.94;
@@ -585,31 +641,6 @@ export class CityScene {
     const rim = new THREE.Mesh(new THREE.BoxGeometry(1.01, 0.1, 1.01), new THREE.MeshStandardMaterial({ color: '#335165', metalness: 0.65, roughness: 0.28 }));
     rim.position.y = 1.74;
     group.add(rim);
-  }
-
-  private createLabel(text: string, color: string, y: number): THREE.Sprite {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 72;
-    const context = canvas.getContext('2d')!;
-    context.fillStyle = 'rgba(4, 13, 25, .78)';
-    context.beginPath();
-    context.roundRect(16, 10, 224, 48, 20);
-    context.fill();
-    context.strokeStyle = color;
-    context.globalAlpha = 0.35;
-    context.stroke();
-    context.globalAlpha = 1;
-    context.fillStyle = color;
-    context.font = '24px "Microsoft YaHei", sans-serif';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText(text, 128, 35);
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false, depthWrite: false }));
-    sprite.scale.set(1.5, 0.42, 1);
-    sprite.position.y = y;
-    sprite.renderOrder = 20;
-    return sprite;
   }
 
   private bindPointerEvents(): void {
@@ -702,15 +733,64 @@ export class CityScene {
     const height = this.container.clientHeight;
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
+    this.measureBoardArea();
+  }
+
+  private measureBoardArea(): void {
+    if (this.screen !== 'level') {
+      this.updateProjection();
+      return;
+    }
+    const shell = this.container.parentElement!;
+    const bounds = this.container.getBoundingClientRect();
+    const area = { left: 12, right: bounds.width - 12, top: 0, bottom: bounds.height };
+    const editor = shell.dataset.screen === 'editor';
+    const constrain = (selector: string, edge: keyof typeof area) => {
+      const box = shell.querySelector(selector)?.getBoundingClientRect();
+      if (!box?.height) return;
+      if (edge === 'left') area.left = Math.max(area.left, box.right - bounds.left + 10);
+      else if (edge === 'right') area.right = Math.min(area.right, box.left - bounds.left - 10);
+      else if (edge === 'top') area.top = Math.max(area.top, box.bottom - bounds.top + 8);
+      else area.bottom = Math.min(area.bottom, box.top - bounds.top - 7);
+    };
+    if (editor) {
+      constrain('.work-editor-head', 'top');
+      if (bounds.width <= 800) {
+        const toolbar = shell.querySelector('.work-controls')!.getBoundingClientRect();
+        shell.style.setProperty('--work-toolbar-bottom', `${bounds.bottom - toolbar.top}px`);
+        constrain('.work-controls', 'bottom');
+        area.bottom -= 53;
+      } else {
+        constrain('.work-controls', 'left');
+        constrain('.work-settings', 'right');
+      }
+    } else {
+      constrain('.play-overview', 'top');
+      constrain('.mirror-dock', 'bottom');
+    }
+    this.boardArea = {
+      width: Math.max(180, area.right - area.left),
+      height: Math.max(180, area.bottom - area.top),
+      x: (area.left + area.right - bounds.width) / 2,
+      y: (area.top + area.bottom - bounds.height) / 2,
+    };
     this.updateProjection();
   }
 
   private updateProjection(): void {
-    const aspect = this.container.clientWidth / this.container.clientHeight;
-    this.camera.left = -this.viewSize * aspect / 2;
-    this.camera.right = this.viewSize * aspect / 2;
-    this.camera.top = this.viewSize / 2;
-    this.camera.bottom = -this.viewSize / 2;
+    const width = this.container.clientWidth;
+    const height = this.container.clientHeight;
+    const area = this.boardArea;
+    const size = this.screen === 'level'
+      ? Math.max(this.viewSize, height * 8.95 / area.width, height * 7.75 / area.height)
+      : this.viewSize;
+    const unit = size / height;
+    const centerX = this.screen === 'level' ? -area.x * unit : 0;
+    const centerY = this.screen === 'level' ? area.y * unit : 0;
+    this.camera.left = centerX - width * unit / 2;
+    this.camera.right = centerX + width * unit / 2;
+    this.camera.top = centerY + size / 2;
+    this.camera.bottom = centerY - size / 2;
     this.camera.updateProjectionMatrix();
   }
 
@@ -781,7 +861,11 @@ export class CityScene {
     }
     this.cityLife.update(elapsed, delta, this.lightLevels);
 
-    if (!this.reducedMotion) this.updateRain(delta);
+    if (!this.reducedMotion) {
+      if (this.rain.visible) this.updateRain(delta);
+      this.sourceFlames.forEach((flame) => animateChapterFlame(flame, elapsed));
+      this.pieceFlames.forEach((flame, index) => animateChapterFlame(flame, elapsed + index * 1.3));
+    }
     this.pulses.forEach((pulse, index) => {
       const run = this.beamRuns[Number(pulse.userData.runIndex)];
       if (!run || !run.totalLength) return;
@@ -795,9 +879,9 @@ export class CityScene {
       pulse.scale.setScalar(0.85 + Math.sin(elapsed * 8 + index) * 0.18);
     });
     this.updateBurst(delta);
-    if (this.level.city) {
+    if (this.screen === 'level' && this.level.city) {
       this.chapterBoards.get(this.level.city)?.lights.forEach((light, index) => {
-        light.emissiveIntensity = THREE.MathUtils.damp(light.emissiveIntensity, .03 + this.chapterLighting[index] * 2.6, 2, delta);
+        light.emissiveIntensity = THREE.MathUtils.damp(light.emissiveIntensity, .06 + (index === this.level.district ? .17 : 0) + this.chapterLighting[index] * 1.95, 2, delta);
       });
     }
     this.composer.render();
@@ -848,6 +932,8 @@ export class CityScene {
   }
 
   private clearLevel(): void {
+    this.sourceFlames.length = 0;
+    this.pieceFlames.length = 0;
     this.disposeGroup(this.pieceGroup);
     this.disposeGroup(this.zoneGroup);
     this.groundPlane = undefined;

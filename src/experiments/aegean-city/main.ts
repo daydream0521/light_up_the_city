@@ -4,7 +4,7 @@ import { atmosphereAndSea } from './atmosphere';
 import { city } from './city';
 import { cityLife } from './life';
 import { height, landscape } from './terrain';
-import { cityFrameFailed, connectPresentation, firstCityFrame } from '../presentation';
+import { cityFrameFailed, connectPresentation, firstCityFrame, reportCityControls, reportCityShow } from '../presentation';
 
 const views = {
   city: { target: [0, 10, -5], camera: [65, 57, 130] },
@@ -77,6 +77,10 @@ function start() {
   }
 
   function setPlay(active: boolean) {
+    if (ceremony && !active) {
+      ceremony = false;
+      reportCityShow(false);
+    }
     playing = active;
     play.setAttribute('aria-pressed', String(active));
     play.textContent = active ? '❚❚' : '▶';
@@ -147,6 +151,7 @@ function start() {
 
   function toggleUI() {
     const hidden = visibility.getAttribute('aria-expanded') === 'true';
+    reportCityControls(hidden);
     document.querySelectorAll<HTMLElement>('.chrome').forEach(element => { element.hidden = hidden; });
     visibility.setAttribute('aria-expanded',String(!hidden));
     visibility.textContent = hidden ? '显示界面' : '隐藏界面';
@@ -168,6 +173,7 @@ function start() {
       framing = true;
     }
     setPlay(ceremony);
+    if (ceremony) reportCityShow(true);
     setOrbit(homeMode && !reducedMotion.matches);
     resize();
     syncClock();
@@ -197,7 +203,7 @@ function start() {
     if (playing) {
       hour = (hour + dt * .23) % 24;
       slider.value = String(hour);
-      if (ceremony && hour >= 21) { ceremony = false; setPlay(false); }
+      if (ceremony && hour >= 21) setPlay(false);
       syncClock();
     }
     if (framing) {

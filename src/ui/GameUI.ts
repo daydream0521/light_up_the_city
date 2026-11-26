@@ -1,4 +1,4 @@
-import { CITIES, chapterStatus, cityOf } from '../game/journey';
+import { CITIES, chapterStatus, cityOf, isLevelUnlocked, type CityIndex } from '../game/journey';
 import { LEVELS, type LevelConfig, type PieceKind } from '../game/levels';
 import type { ReflectionTrace } from '../game/reflection';
 import type { LevelRating } from '../game/score';
@@ -10,6 +10,7 @@ interface UICallbacks {
   onStart: () => void;
   onReset: () => void;
   onToggleMute: () => void;
+  onVolume: (channel: 'music' | 'ambience' | 'effects', volume: number) => void;
   onNext: () => void;
   onReplay: () => void;
   onSelectLevel: (index: number) => void;
@@ -19,6 +20,7 @@ interface UICallbacks {
 }
 
 const icons = {
+  sliders: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M9 3v6m6 0v6m-5 0v6"/></svg>',
   reset: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .5-7l-2 2"/></svg>',
   muted: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Zm5 4 5 6m0-6-5 6"/></svg>',
   sound: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Zm4 4a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg>',
@@ -31,7 +33,19 @@ const icons = {
 };
 
 export const TOOL_LABELS: Record<PieceKind, string> = { mirror: '镜面', splitter: '分光镜', single: '背灯镜', checkpoint: '闸门' };
-const TOOL_GLYPHS: Record<PieceKind, string> = { mirror: '镜', splitter: '分', single: '灯', checkpoint: '闸' };
+const devicePaths = {
+  source: 'M6 21h12M9 21l2-11m4 11-2-11M9 7l3-4 3 4-3 4-3-4Zm8 0h4M3 7h4',
+  mirror: 'M5 19 19 5m-15 6h6m4 7v-6m2-9 5 5',
+  splitter: 'm12 3 8 9-8 9-8-9 8-9ZM2 12h20m-10 0V5m-3 3 3-3 3 3',
+  single: 'M5 18 19 4M7 8 4 5m.5 8H1m15 7 3 3m-5-6 5-5 3 3-5 5',
+  checkpoint: 'M4 20V6h16v14M8 20v-9h8v9M12 18v-4m-2 2 2-2 2 2',
+  erase: 'M5 10a7 7 0 1 1 2 8m-2-8V4m0 6h6M12 9l3 3-3 3',
+  select: 'M6 3v15l4-4 4 7 3-2-4-7h6L6 3Z',
+};
+
+export function deviceIcon(kind: keyof typeof devicePaths): string {
+  return `<svg class="device-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${devicePaths[kind]}"/></svg>`;
+}
 
 export class GameUI {
   private readonly shell: HTMLElement;
@@ -61,6 +75,14 @@ export class GameUI {
             <button class="icon-button" data-action="brief" aria-label="本关玩法说明" title="本关玩法说明">${icons.help}<span>说明</span></button>
             <button class="icon-button" data-action="reset" aria-label="重置当前关卡" title="重置当前关卡（R）">${icons.reset}<span>重置</span></button>
             <button class="icon-button" data-action="mute" aria-label="开启声音" aria-pressed="true" title="切换声音（M）">${icons.muted}<span>声音</span></button>
+            <details class="sound-settings">
+              <summary class="icon-button" aria-label="声音设置" title="声音设置">${icons.sliders}</summary>
+              <div class="sound-panel">
+                <label>音乐<input id="mix-music" data-volume="music" type="range" min="0" max="100"></label>
+                <label>环境音<input id="mix-ambience" data-volume="ambience" type="range" min="0" max="100"></label>
+                <label>操作音<input id="mix-effects" data-volume="effects" type="range" min="0" max="100"></label>
+              </div>
+            </details>
           </div>
         </header>
 
@@ -75,14 +97,14 @@ export class GameUI {
               <button class="icon-button" id="open-workshop">造光工坊</button>
               <button class="icon-button" data-journey="replay-chapter" hidden>重玩章节</button>
             </div>
-            <p id="save-note" class="save-note"></p>
+            <p class="city-note"><span id="save-note" class="save-note"></span><button class="home-preview" data-journey="preview" hidden>预览城市</button></p>
           </div>
           <div class="intro-cities" aria-label="城市之旅">${CITIES.map(city => `<button data-journey="theme-${city.key}" aria-pressed="${city.key === 'rain'}"><img src="./journey/${city.key}.${city.key === 'rain' ? 'png' : 'jpg'}" alt=""><span>${city.name}</span></button>`).join('')}</div>
           <a class="homepage-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" hidden>© OpenStreetMap contributors</a>
         </section>
 
         <section id="hud" class="game-hud" hidden>
-          <div class="level-copy">
+          <div class="play-overview"><div class="level-copy">
             <p id="level-number" class="level-number"></p>
             <h2 id="level-name"></h2>
             <p id="level-subtitle"></p>
@@ -94,7 +116,7 @@ export class GameUI {
             </div>
             <ul id="win-conditions" class="win-conditions"></ul>
           </div>
-          <div id="play-hint" class="play-hint" hidden><span class="mouse-symbol" aria-hidden="true"></span><span id="play-hint-text"></span></div>
+          <div id="play-hint" class="play-hint" hidden><span id="play-hint-text"></span></div></div>
           <div id="tool-dock" class="mirror-dock tool-dock" aria-label="库存器件" hidden>
             <span class="dock-label">库存器件</span>
             <div id="tool-buttons" class="mirror-buttons"></div>
@@ -174,8 +196,17 @@ export class GameUI {
       }
     });
 
+    const sound = this.shell.querySelector<HTMLDetailsElement>('.sound-settings')!;
+    sound.addEventListener('input', (event) => {
+      const slider = event.target as HTMLInputElement;
+      const channel = slider.dataset.volume as 'music' | 'ambience' | 'effects';
+      this.callbacks.onVolume(channel, slider.valueAsNumber / 100);
+    });
+    document.addEventListener('pointerdown', (event) => {
+      if (sound.open && !sound.contains(event.target as Node)) sound.open = false;
+    });
     window.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') { this.closeBrief(); return; }
+      if (event.key === 'Escape') { this.closeBrief(); sound.open = false; return; }
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.target instanceof HTMLElement && event.target.matches('input, select, textarea')) return;
       if (event.key.toLowerCase() === 'r') this.callbacks.onReset();
@@ -217,7 +248,7 @@ export class GameUI {
         { delay: 130, duration: 420, easing: 'cubic-bezier(.2,.7,.25,1)', fill: 'backwards' });
     }
     this.shell.dataset.screen = 'intro';
-    this.shell.dataset.city = 'rain';
+    this.shell.dataset.city = city.key;
     this.intro.hidden = false;
     this.hud.hidden = true;
     this.finale.hidden = true;
@@ -230,11 +261,11 @@ export class GameUI {
     trailing.textContent = city.title[1];
     copy.querySelector('.intro-overline')!.textContent = city.english;
     copy.querySelector('.intro-description')!.textContent = city.description;
-    const { complete, unlocked, done, next } = chapterStatus(index, save.completed);
-    rootQuery('#start-label').textContent = complete ? '自由观赏' : !unlocked ? '预览城市' : done > 0 ? '继续点亮' : '开始点亮';
+    const { complete, done, next } = chapterStatus(index, save.completed);
+    rootQuery('#start-label').textContent = complete ? '自由观赏' : done > 0 ? '继续点亮' : '开始点亮';
     rootQuery('[data-journey="replay-chapter"]').hidden = !complete;
-    rootQuery('#save-note').textContent = !unlocked ? `完成${CITIES[index - 1].name}后解锁章节`
-      : done ? `已点亮 ${done} / ${city.end - city.first} 关` : '';
+    rootQuery('#save-note').textContent = done ? `已点亮 ${done} / ${city.end - city.first} 关` : '';
+    rootQuery('[data-journey="preview"]').hidden = index === 0 || complete;
     this.intro.querySelectorAll<HTMLButtonElement>('[data-journey^="theme-"]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.journey === `theme-${city.key}`));
     });
@@ -242,9 +273,9 @@ export class GameUI {
     this.renderProgress(next, save.completed, true, save.best);
   }
 
-  showWorkshop(editing: boolean): void {
+  showWorkshop(editing: boolean, city: CityIndex = 0): void {
     this.shell.dataset.screen = editing ? 'editor' : 'workshop';
-    this.shell.dataset.city = 'rain';
+    this.shell.dataset.city = CITIES[city].key;
     this.intro.hidden = true;
     this.hud.hidden = true;
     this.finale.hidden = true;
@@ -256,14 +287,14 @@ export class GameUI {
   showLevel(level: LevelConfig, completed: readonly number[], best: Record<number, BestScore>, hintText: string | null, mode?: 'trial' | 'challenge'): void {
     this.currentLevel = level;
     this.shell.dataset.screen = mode ?? 'playing';
-    this.shell.dataset.city = mode ? 'rain' : CITIES[cityOf(level.id)].key;
+    this.shell.dataset.city = CITIES[level.city ?? 0].key;
     this.intro.hidden = true;
     this.finale.hidden = true;
     this.toast.hidden = true;
     this.hud.hidden = false;
     rootQuery('#level-brief').hidden = true;
     rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = false;
-    rootQuery('#level-number').textContent = mode === 'trial' ? '编辑器试玩' : mode === 'challenge' ? '玩家关卡挑战' : `${CITIES[cityOf(level.id)].name} · 第 ${level.id + 1} 关 · ${level.chapter}`;
+    rootQuery('#level-number').textContent = mode === 'trial' ? `编辑器试玩 · ${CITIES[level.city ?? 0].name}` : mode === 'challenge' ? `玩家关卡挑战 · ${CITIES[level.city ?? 0].name}` : `${CITIES[cityOf(level.id)].name} · 第 ${level.id + 1} 关 · ${level.chapter}`;
     rootQuery('#level-name').textContent = level.name;
     rootQuery('#level-subtitle').textContent = level.subtitle;
 
@@ -274,12 +305,13 @@ export class GameUI {
     const rows: string[] = [
       this.conditionRow('lights', '背灯点亮', `0/${reflection.lightTargets}`),
     ];
-    if (inventoryTotal > 0) rows.push(this.conditionRow('inv', '库存全部放上屋顶', `剩 ${inventoryTotal}`));
-    rows.push(this.conditionRow('hit', '器件全部被光照到', '未照 0'));
-    if (checkpointTotal > 0) rows.push(this.conditionRow('cp', '闸门恰好穿过', `0/${checkpointTotal}`));
+    if (inventoryTotal > 0) rows.push(this.conditionRow('inv', '用尽库存', `剩 ${inventoryTotal}`));
+    rows.push(this.conditionRow('hit', '光照全部器件', '未照 0'));
+    if (checkpointTotal > 0) rows.push(this.conditionRow('cp', '闸门恰好通过', `0/${checkpointTotal}`));
     rootQuery('#win-conditions').innerHTML = rows.join('');
 
     const hint = rootQuery('#play-hint');
+    hint.classList.remove('dismissed');
     if (hintText) {
       rootQuery('#play-hint-text').textContent = hintText;
       hint.hidden = false;
@@ -292,10 +324,10 @@ export class GameUI {
     if (inventoryTotal > 0) {
       rootQuery('#tool-buttons').innerHTML = reflection.inventory.map((item) => `
         <button class="mirror-button tool-button" data-tool="${item.kind}" title="${TOOL_LABELS[item.kind]}" aria-label="${TOOL_LABELS[item.kind]}，剩余 ${item.count}" aria-pressed="false">
-          <span class="mirror-id">${TOOL_GLYPHS[item.kind]}</span><span class="mirror-glyph">×${item.count}</span>
+          ${deviceIcon(item.kind)}<span class="tool-name">${TOOL_LABELS[item.kind]}</span><span class="mirror-glyph">×${item.count}</span>
         </button>`).join('') + `
         <button class="mirror-button tool-button" data-tool="erase" title="取回你放置的器件" aria-label="取回你放置的器件" aria-pressed="false" disabled>
-          <span class="mirror-id">取</span><span class="mirror-glyph">回</span>
+          ${deviceIcon('erase')}<span class="tool-name">取回</span>
         </button>`;
     }
     if (!mode) this.renderProgress(level.id, completed, false, best);
@@ -315,7 +347,7 @@ export class GameUI {
   }
 
   clearHint(): void {
-    rootQuery('#play-hint').hidden = true;
+    rootQuery('#play-hint').classList.add('dismissed');
   }
 
   updateReflection(trace: ReflectionTrace, left: Record<PieceKind, number>, placements: number, tool: ToolSelection, moves: number): void {
@@ -347,6 +379,7 @@ export class GameUI {
         button.disabled = placements === 0;
       } else {
         button.querySelector('.mirror-glyph')!.textContent = `×${left[kind]}`;
+        button.setAttribute('aria-label', `${TOOL_LABELS[kind]}，剩余 ${left[kind]}`);
         button.disabled = left[kind] <= 0 && tool !== kind;
       }
       button.setAttribute('aria-pressed', String(tool === kind));
@@ -368,7 +401,7 @@ export class GameUI {
     this.toast.hidden = true;
   }
 
-  showFinale(save: SaveData, preview = false): void {
+  showFinale(save: SaveData, preview = false, journeyComplete = false): void {
     this.shell.dataset.screen = 'finale';
     this.shell.dataset.city = 'rain';
     this.hud.hidden = true;
@@ -381,10 +414,10 @@ export class GameUI {
     const completed = save.completed.filter(id => id < rain.end);
     const totalStars = completed.reduce((sum, id) => sum + (save.best[id]?.stars ?? 0), 0);
     rootQuery('#finale-count').textContent = `${completed.length} / ${rain.end} 街区已点亮`;
-    rootQuery('#finale-title').textContent = preview ? rain.name : '这座城市，因你而亮。';
+    rootQuery('#finale-title').textContent = preview ? rain.name : journeyComplete ? '三座城市，灯火相连' : '这座城市，因你而亮。';
     rootQuery('#finale-stars').textContent = `收集 ${totalStars} / ${rain.end * 3} ★`;
-    rootQuery('[data-action="replay"]').hidden = preview || save.completed.length < LEVELS.length;
-    rootQuery('[data-journey="advance"]').hidden = preview;
+    rootQuery('[data-action="replay"]').hidden = preview || !journeyComplete;
+    rootQuery('[data-journey="advance"]').hidden = preview || journeyComplete;
     this.renderProgress(rain.end - 1, save.completed, false, save.best);
     this.announce(preview ? rain.name : '雨夜之城完成复苏。');
   }
@@ -393,6 +426,12 @@ export class GameUI {
     this.shell.classList.toggle('observe-hidden', hidden);
     rootQuery<HTMLButtonElement>('#show-ui').hidden = !hidden;
     this.announce(hidden ? '界面已隐藏，可自由观赏城市。' : '界面已恢复。');
+  }
+
+  setMix(mix: Record<'music' | 'ambience' | 'effects', number>): void {
+    for (const [channel, value] of Object.entries(mix)) {
+      rootQuery<HTMLInputElement>(`#mix-${channel}`).value = String(Math.round(value * 100));
+    }
   }
 
   setMuted(muted: boolean): void {
@@ -467,7 +506,7 @@ export class GameUI {
       const index = level.id;
       const isComplete = completed.includes(index);
       const isCurrent = index === current && !intro;
-      const unlocked = index <= Math.min(completed.length, LEVELS.length - 1);
+      const unlocked = isLevelUnlocked(index, completed);
       const stars = best[index]?.stars ?? 0;
       const starText = isComplete && stars ? `，${stars} 星` : '';
       return `<li><button data-level="${index}" class="progress-step${isComplete ? ' is-complete' : ''}${isCurrent ? ' is-current' : ''}" ${unlocked ? '' : 'disabled'} aria-label="第 ${index + 1} 关 ${level.name}${isComplete ? '，已点亮' : ''}${starText}" ${isCurrent ? 'aria-current="step"' : ''}><span>${index + 1}</span><i></i></button></li>`;
