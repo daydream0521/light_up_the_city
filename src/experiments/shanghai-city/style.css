@@ -1,0 +1,30 @@
+:root { color-scheme: dark; color: #f9f3e8; background: #10192b; font: 14px system-ui,sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; overflow: hidden; }
+#view, canvas { display: block; width: 100vw; height: 100dvh; }
+canvas { touch-action: none; }
+header, #panel, #hide, #attribution, #status { position: fixed; }
+header { top: 26px; left: 32px; text-shadow: 0 2px 14px #061320, 0 1px 3px #061320; pointer-events: none; }
+h1 { margin: 0; font: 620 clamp(28px,4vw,52px)/1.14 system-ui,sans-serif; letter-spacing: .2em; }
+header p { margin: 5px 0; letter-spacing: .18em; font-size: clamp(12px,1.25vw,16px); }
+#hide { right: 16px; top: 16px; background: #101b2bed; }
+#attribution { right: 12px; bottom: max(6px,env(safe-area-inset-bottom)); font-size: 10px; }
+#attribution a { color: #f4eddf; background: #101827e8; padding: 3px 6px; }
+#panel { bottom: max(25px,calc(env(safe-area-inset-bottom) + 20px)); left: 50%; transform: translateX(-50%); width: min(515px,calc(100% - 20px)); padding: 5px 8px; background: #111d30f2; border: 1px solid #9eb0c76f; border-radius: 10px; box-shadow: 0 8px 32px #030b19a0; }
+nav { display: grid; grid-template-columns: 1.05fr 1.05fr 1.05fr 1.05fr 1.15fr .7fr; gap: 2px; }
+button, select { min-height: 44px; padding: 0 9px; font: inherit; font-size: 13px; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: pointer; }
+select { background: #1e3048; }
+button[aria-pressed=true], #show { color: #192437; background: #f4cc91; }
+#show[aria-pressed=true] { background: #b9cbed; }
+@media (hover:hover) { button:hover:not([aria-pressed=true],#show) { background: #2a405d; } }
+:focus-visible { outline: 2px solid #ffdda7; outline-offset: 2px; }
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0; }
+.time { display: grid; grid-template-columns: 44px minmax(53px,auto) 1fr 44px; align-items: center; gap: 5px; border-top: 1px solid #ffffff26; font-size: 12px; }
+output { text-align: right; font-variant-numeric: tabular-nums; }
+input { width: 100%; min-width: 0; margin: 0; height: 44px; accent-color: #edc996; }
+#status { top: 45%; width: 100%; text-align: center; pointer-events: none; }
+[hidden] { display: none !important; }
+@media(max-width: 520px) {
+  header { top: 19px; left: 16px; }
+  nav button { padding: 0 2px; font-size: 12px; line-height: 1.15; }
+}

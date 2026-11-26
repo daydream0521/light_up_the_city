@@ -8,6 +8,7 @@ export default defineConfig({
       input: {
         city: fileURLToPath(new URL('./index.html', import.meta.url)),
         aegean: fileURLToPath(new URL('./experiments/aegean-city/index.html', import.meta.url)),
+        shanghai: fileURLToPath(new URL('./experiments/shanghai-city/index.html', import.meta.url)),
       },
     },
     target: 'es2022',

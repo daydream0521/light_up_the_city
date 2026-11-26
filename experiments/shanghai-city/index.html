@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10192b">
+  <link rel="icon" href="data:,">
+  <title>两岸灯火 · Shanghai in Lights</title>
+</head>
+<body>
+  <main id="view" aria-label="上海外滩与陆家嘴三维场景"></main>
+  <header class="chrome"><h1>两岸灯火</h1><p>Shanghai in Lights</p></header>
+  <button id="hide" aria-controls="panel" aria-expanded="true" title="隐藏或恢复界面（H）">隐藏界面</button>
+  <section id="panel" class="chrome" aria-label="观赏控制">
+    <nav aria-label="场景机位">
+      <button data-view="city" aria-pressed="true">两岸全景</button>
+      <button data-view="bund">外滩望江</button>
+      <button data-view="pudong">浦东望西</button>
+      <button data-view="heritage">外滩建筑</button>
+      <button data-view="top">黄浦江俯瞰</button>
+      <button id="orbit" aria-pressed="false">环视</button>
+    </nav>
+    <div class="controls">
+      <select id="landmark" aria-label="地标特写">
+        <option value="">地标特写</option><option value="pearl">东方明珠</option><option value="tower">上海中心</option>
+        <option value="finance">环球金融中心</option><option value="jin">金茂大厦</option><option value="customs">海关大楼</option><option value="peace">和平饭店</option>
+      </select>
+      <button id="show" aria-pressed="false">点亮两岸</button>
+    </div>
+    <div class="time">
+      <button id="play" aria-label="播放昼夜" aria-pressed="false">▶</button>
+      <label for="time" id="phase">蓝调时刻</label>
+      <input id="time" type="range" min="0" max="24" step=".01" value="19.35">
+      <output id="clock" for="time">19:21</output>
+    </div>
+  </section>
+  <aside id="attribution"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a></aside>
+  <p id="status" role="status">正在生成黄浦江两岸…</p>
+  <script type="module" src="../../src/experiments/shanghai-city/main.ts"></script>
+</body>
+</html>
