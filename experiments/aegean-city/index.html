@@ -1,10 +1,21 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-scene-state="loading">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#11272c">
   <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; height: 100%; background: #11272c; color: #f2e9d9; color-scheme: dark; }
+    html:not([data-scene-state="ready"]) body > :not(#status, #scene-retry) { visibility: hidden; }
+    html[data-scene-mode="home"] :is(.chrome, #hide, #visibility, #attribution) { display: none; }
+    #status, #scene-retry { position: fixed; left: 50%; transform: translateX(-50%); margin: 0;
+      font: 14px system-ui, sans-serif; white-space: nowrap; }
+    #status { top: 45%; }
+    #scene-retry { top: calc(45% + 36px); padding: 8px 14px; color: inherit; border: 1px solid #94a8b4; border-radius: 6px; }
+    [hidden] { display: none !important; }
+  </style>
+  <link id="scene-style" rel="stylesheet" href="../../src/experiments/aegean-city/style.css">
   <title>爱琴余晖 · Aegean Twilight</title>
 </head>
 <body>
@@ -33,6 +44,15 @@
     </div>
   </section>
   <p id="status" role="status">正在生成海港城邦…</p>
+  <a id="scene-retry" href="" hidden>重新加载</a>
+  <script>
+    window.setTimeout(() => {
+      if (document.documentElement.dataset.sceneState !== 'loading') return;
+      document.documentElement.dataset.sceneState = 'failed';
+      document.getElementById('status').textContent = '三维场景载入超时。';
+      document.getElementById('scene-retry').hidden = false;
+    }, 32000);
+  </script>
   <script type="module" src="../../src/experiments/aegean-city/main.ts"></script>
 </body>
 </html>

@@ -19,7 +19,7 @@ test('city collection previews all three maps and preserves progress', async ({ 
       await expect(page.locator('#finale-title')).toHaveText(city.name);
       await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
     } else {
-      const frame = page.frameLocator('.journey-exhibit iframe');
+      const frame = page.frameLocator('.city-surface iframe');
       await expect(frame.locator('#status')).toBeHidden();
       await expect(frame.locator('#time')).toBeVisible();
     }
@@ -41,7 +41,7 @@ for (const chapter of CITIES.slice(1)) {
       }));
     }, chapter);
     await page.goto('/');
-    await page.getByRole('button', { name: '继续点亮' }).click();
+    await page.getByRole('button', { name: '开始点亮' }).click();
     await expect(page.locator('#level-name')).toHaveText(LEVELS[chapter.first].name);
     const stocked = LEVELS[chapter.first].reflection.inventory[0].kind;
     const level = LEVELS[chapter.first];
@@ -62,14 +62,14 @@ for (const chapter of CITIES.slice(1)) {
       await advanceCampaign(page, puzzle.id);
     }
 
-    const observation = page.frameLocator('.journey-exhibit iframe');
+    const observation = page.frameLocator('.city-surface iframe');
     await expect(observation.locator('#status')).toBeHidden();
-    await expect(page.locator(`.journey-exhibit iframe`)).toHaveAttribute('src', /exhibit=show/);
+    await expect(page.locator(`.city-surface iframe`)).toHaveAttribute('src', /exhibit=show/);
     if (chapter.key === 'aegean') {
       await page.getByRole('button', { name: '继续旅程' }).click();
       await expect(page.locator('#level-name')).toHaveText(LEVELS[17].name);
       await page.reload();
-      await page.getByRole('button', { name: '继续点亮' }).click();
+      await page.getByRole('button', { name: '开始点亮' }).click();
       await expect(page.locator('#level-name')).toHaveText(LEVELS[17].name);
     } else {
       await expect(page.locator('.journey-exhibit')).toContainText('三座城市，灯火相连');
@@ -88,7 +88,7 @@ test.describe('mobile city board', () => {
       currentLevel: 9, completed: [0, 1, 2, 3, 4, 5, 6, 7, 8], best: {}, muted: true,
     })));
     await page.goto('/');
-    await page.getByRole('button', { name: '继续点亮' }).tap();
+    await page.getByRole('button', { name: '开始点亮' }).tap();
     await expect(page.locator('#level-name')).toHaveText('港口双灯');
     await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
     await page.locator('[data-tool="splitter"]').tap();

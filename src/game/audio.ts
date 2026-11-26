@@ -2,6 +2,13 @@ export class CityAudio {
   private context?: AudioContext;
   private master?: GainNode;
   private enabled = false;
+  private rainGain?: GainNode;
+  private raining = true;
+
+  setRain(active: boolean): void {
+    this.raining = active;
+    if (this.rainGain && this.context) this.rainGain.gain.setTargetAtTime(active ? 0.14 : 0, this.context.currentTime, 0.12);
+  }
 
   async setEnabled(enabled: boolean): Promise<void> {
     this.enabled = enabled;
@@ -47,7 +54,8 @@ export class CityAudio {
     filter.type = 'highpass';
     filter.frequency.value = 900;
     const rainGain = this.context.createGain();
-    rainGain.gain.value = 0.14;
+    rainGain.gain.value = this.raining ? 0.14 : 0;
+    this.rainGain = rainGain;
     rain.connect(filter).connect(rainGain).connect(this.master);
     rain.start();
   }

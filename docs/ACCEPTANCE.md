@@ -174,3 +174,11 @@ Playwright 汇总：3 个 spec 全部通过（1.9m）。
 - 运行环境为 Windows 桌面 Chrome，ANGLE SwiftShader 软件 WebGL，实际检查了 1440 × 900、1100 × 760 与 390 × 844 视口。在 1100 × 760 视口、605 × 418 渲染缓冲区下，雨夜第一关的短时 RAF 采样约 6 fps。完整城市打开时暂停主游戏渲染，退出时卸载观赏页面。实体移动设备、硬件加速性能与长时间显存曲线待验收。
 
 关卡难度目标及限制见 [v3 章节与关卡说明](V3-JOURNEY.md)。
+
+## v3.1 三城动态首页验收
+
+- Chrome 冷启动复现了旧版问题。延迟地图入口模块时，iframe 在样式生效前展示了白底、原生控件和初始化文字。新版从 HTML 提供深色底和独立加载状态，外层保留真实城景过渡图，收到当前 iframe 同源首帧消息后才淡入。
+- Chrome 主题验收覆盖三城环绕、主线解锁文案、自由观赏时复用场景及恢复控件、收藏与工坊返回、快速连续点击、初始化失败重试和 390 × 844 手机视口的减少动态效果设置。冷加载用 CDP 禁用缓存，模拟 170ms 延迟和 150 KiB/s 下载，并额外延迟地图入口以检查首帧与过时消息的处理。
+- 一次生产预览中的 [雨夜首页](screenshots/v31-sequence-01.jpg) → [爱琴加载画面](screenshots/v31-sequence-02.jpg) → [爱琴实时首页](screenshots/v31-sequence-03.jpg) → [上海加载画面](screenshots/v31-sequence-04.jpg) → [上海实时首页](screenshots/v31-sequence-05.jpg)。另见 [手机首页](screenshots/v31-mobile.png)。
+- 生产构建和 Vitest 60 项通过。主题 Playwright 在开发环境和生产预览各通过 5 项，快速切换修复后分别复验。从空存档在 Chrome 再次连续通关 25 关，完成记录与个人最佳齐全。生产预览中工坊 3 项回归通过，包括独立浏览器分享挑战和草稿存储失败。
+- 浏览器实测使用 Windows Chrome 与 SwiftShader 软件 WebGL。实体移动设备与硬件渲染性能待验收。

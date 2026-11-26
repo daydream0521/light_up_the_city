@@ -5,7 +5,7 @@ import {mix,smooth} from './geometry';
 import {sites} from './landmarks';
 import {setLights,setupLighting} from './lighting';
 import {makeRiver,riverLife} from './river';
-import './style.css';
+import { cityFrameFailed, connectPresentation, firstCityFrame } from '../presentation';
 
 type Landmark=keyof typeof sites;
 const views={
@@ -59,6 +59,7 @@ function mount(){
   const target=new T.Vector3(), eye=new T.Vector3();
   const before=new T.Vector3(), lastEye=new T.Vector3(), lastAim=new T.Vector3();
   let view:View='city', travel=false, selected=true, dirty=true, playing=false;
+  let homeMode = false;
   let time=0, hour=Number(slider.value), showStart:number|null=null;
   let pixelScale=1, slowFrames=0, frame=0, prev=performance.now(), reflectAt=-1;
 
@@ -95,7 +96,7 @@ function mount(){
     camera.fov=(framed?27:40)+(framed?36:30)*(1-smooth(camera.aspect,.45,.95));
     camera.updateProjectionMatrix();
     const portrait=T.MathUtils.clamp((framed?.98:.82)/camera.aspect,1,1.48);
-    eye.sub(target).multiplyScalar(portrait).add(target);
+    eye.sub(target).multiplyScalar(portrait * (homeMode ? 1.13 : 1)).add(target);
     presets.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===name)));
     select.value=landmark?name:'';
     travel=!jump&&!reduced.matches;
@@ -112,7 +113,9 @@ function mount(){
     const container=$('view');
     camera.aspect=container.clientWidth/Math.max(1,container.clientHeight);
     camera.fov=(view==='city'?27:40)+(view==='city'?36:30)*(1-smooth(camera.aspect,.45,.95));
-    camera.updateProjectionMatrix();
+    const width = container.clientWidth, height = container.clientHeight;
+    camera.clearViewOffset();
+    if (homeMode) camera.setViewOffset(width, height, width > 800 ? -width * .105 : 0, width <= 800 ? height * .13 : 0, width, height);
     resizeBuffer();
     if(selected)move(view,true);
   }
@@ -163,12 +166,31 @@ function mount(){
   }
   $('hide').addEventListener('click',toggle);
   document.addEventListener('keydown',e=>{
-    if(e.key.toLowerCase()==='h'&&!e.repeat&&!e.ctrlKey&&!e.metaKey&&!e.altKey)toggle();
+    if(!homeMode&&e.key.toLowerCase()==='h'&&!e.repeat&&!e.ctrlKey&&!e.metaKey&&!e.altKey)toggle();
   });
   addEventListener('resize',resize);
-  resize();
-  syncTime();
-  if (new URLSearchParams(location.search).get('exhibit') === 'show') startShow();
+  connectPresentation(mode => {
+    homeMode = mode === 'home';
+    controls.enabled = !homeMode;
+    if (!homeMode && $('hide').getAttribute('aria-expanded') === 'false') toggle();
+    finishShow();
+    setPlay(false);
+    setOrbit(homeMode && !reduced.matches);
+    if (homeMode) {
+      hour = 19.65;
+      slider.value = String(hour);
+      view = 'city';
+      selected = true;
+    }
+    resize();
+    if (mode === 'show') startShow();
+    syncTime();
+  });
+  reduced.addEventListener('change', () => { if (homeMode) setOrbit(!reduced.matches); });
+  renderer.domElement.addEventListener('webglcontextlost', () => {
+    renderer.setAnimationLoop(null);
+    cityFrameFailed('Shanghai WebGL context lost');
+  });
   renderer.setAnimationLoop(now=>{
     const delta=now-prev;
     const dt=Math.min(.15,Math.max(0,delta/1000));
@@ -217,9 +239,9 @@ function mount(){
     }
     renderer.render(scene,camera);
     frame++;
-    $('status').hidden=true;
+    firstCityFrame();
   });
 }
 
 try{mount();}
-catch(error){$('status').textContent='三维场景载入失败，请检查浏览器的 WebGL 支持。';console.error(error);}
+catch(error){cityFrameFailed(error);}

@@ -82,7 +82,8 @@ test('finale clears devices and free city observation works on desktop', async (
   await expect(page.locator('#move-count')).toHaveText('1');
 
   await page.reload();
-  await page.locator('.intro-cities button:first-child').click();
+  await page.locator('#intro [data-journey="collection"]').click();
+  await page.locator('.journey-collection [data-journey="observe-rain"]').click();
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false', { timeout: 25_000 });
   await page.waitForTimeout(2200);
   await page.screenshot({ path: 'test-results/obs-05-reload-finale.png' });
@@ -106,7 +107,8 @@ test('finale observation basics on mobile', async ({ browser }) => {
   });
   await page.goto('/');
   await expect(page.locator('#loading')).toBeHidden();
-  await page.locator('.intro-cities button:first-child').tap();
+  await page.locator('#intro [data-journey="collection"]').tap();
+  await page.locator('.journey-collection [data-journey="observe-rain"]').tap();
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false', { timeout: 25_000 });
   await page.waitForTimeout(2200);
 

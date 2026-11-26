@@ -47,7 +47,7 @@ export async function advanceCampaign(page: Page, solved: number): Promise<void>
       await expect(page.locator('#finale')).toBeVisible();
       await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
     } else {
-      await expect(page.locator('.journey-exhibit iframe')).toBeVisible();
+      await expect(page.locator('.city-surface iframe')).toBeVisible();
     }
     return;
   }

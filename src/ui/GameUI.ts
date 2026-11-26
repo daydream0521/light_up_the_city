@@ -1,4 +1,4 @@
-import { CITIES, cityOf } from '../game/journey';
+import { CITIES, chapterStatus, cityOf } from '../game/journey';
 import { LEVELS, type LevelConfig, type PieceKind } from '../game/levels';
 import type { ReflectionTrace } from '../game/reflection';
 import type { LevelRating } from '../game/score';
@@ -64,7 +64,7 @@ export class GameUI {
           </div>
         </header>
 
-        <section id="intro" class="intro-screen screen-layer">
+        <section id="intro" class="intro-screen screen-layer" data-theme="rain">
           <div class="intro-copy">
             <p class="intro-overline">Light Up the City</p>
             <h1><span>点亮</span><span>夜城</span></h1>
@@ -73,10 +73,12 @@ export class GameUI {
               <button class="primary-button" data-action="start"><span id="start-label">开始点亮</span>${icons.arrow}</button>
               <button class="icon-button" data-journey="collection">城市收藏</button>
               <button class="icon-button" id="open-workshop">造光工坊</button>
+              <button class="icon-button" data-journey="replay-chapter" hidden>重玩章节</button>
             </div>
             <p id="save-note" class="save-note"></p>
           </div>
-          <div class="intro-cities" aria-label="城市之旅">${CITIES.map(city => `<button data-journey="observe-${city.key}"><img src="./journey/${city.key}.${city.key === 'rain' ? 'png' : 'jpg'}" alt=""><span>${city.name}</span></button>`).join('')}</div>
+          <div class="intro-cities" aria-label="城市之旅">${CITIES.map(city => `<button data-journey="theme-${city.key}" aria-pressed="${city.key === 'rain'}"><img src="./journey/${city.key}.${city.key === 'rain' ? 'png' : 'jpg'}" alt=""><span>${city.name}</span></button>`).join('')}</div>
+          <a class="homepage-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" hidden>© OpenStreetMap contributors</a>
         </section>
 
         <section id="hud" class="game-hud" hidden>
@@ -189,7 +191,31 @@ export class GameUI {
     rootQuery('#loading').hidden = true;
   }
 
-  showIntro(save: SaveData): void {
+  showIntro(save: SaveData, index = 0, direction = 0): void {
+    const city = CITIES[index];
+    this.intro.querySelector('.intro-copy-out')?.remove();
+    const copy = this.intro.querySelector<HTMLElement>('.intro-copy')!;
+    copy.getAnimations().forEach(animation => animation.cancel());
+    if (direction && !this.intro.hidden && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const outgoing = copy.cloneNode(true) as HTMLElement;
+      outgoing.querySelectorAll('[id], [data-action], [data-journey]').forEach(element => {
+        element.removeAttribute('id');
+        element.removeAttribute('data-action');
+        element.removeAttribute('data-journey');
+      });
+      outgoing.classList.add('intro-copy-out');
+      outgoing.setAttribute('aria-hidden', 'true');
+      outgoing.inert = true;
+      outgoing.style.left = `${copy.offsetLeft}px`;
+      outgoing.style.top = `${copy.offsetTop}px`;
+      outgoing.style.width = `${copy.offsetWidth}px`;
+      this.intro.prepend(outgoing);
+      const exit = outgoing.animate([{ opacity: 1 }, { opacity: 0, transform: `translateX(${-direction * 26}px)` }],
+        { duration: 240, easing: 'ease-in', fill: 'forwards' });
+      exit.onfinish = () => outgoing.remove();
+      copy.animate([{ opacity: 0, transform: `translateX(${direction * 30}px)` }, { opacity: 1 }],
+        { delay: 130, duration: 420, easing: 'cubic-bezier(.2,.7,.25,1)', fill: 'backwards' });
+    }
     this.shell.dataset.screen = 'intro';
     this.shell.dataset.city = 'rain';
     this.intro.hidden = false;
@@ -198,10 +224,22 @@ export class GameUI {
     this.toast.hidden = true;
     rootQuery('#level-brief').hidden = true;
     rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = true;
-    const continuing = save.completed.length > 0 && save.completed.length < LEVELS.length;
-    rootQuery('#start-label').textContent = continuing ? '继续点亮' : save.completed.length === LEVELS.length ? '俯瞰夜城' : '开始点亮';
-    rootQuery('#save-note').textContent = continuing ? `已为你保留 ${save.completed.length} 段街角的灯光` : '';
-    this.renderProgress(save.currentLevel, save.completed, true, save.best);
+    this.intro.dataset.theme = city.key;
+    const [leading, trailing] = copy.querySelectorAll('h1 span');
+    leading.textContent = city.title[0];
+    trailing.textContent = city.title[1];
+    copy.querySelector('.intro-overline')!.textContent = city.english;
+    copy.querySelector('.intro-description')!.textContent = city.description;
+    const { complete, unlocked, done, next } = chapterStatus(index, save.completed);
+    rootQuery('#start-label').textContent = complete ? '自由观赏' : !unlocked ? '预览城市' : done > 0 ? '继续点亮' : '开始点亮';
+    rootQuery('[data-journey="replay-chapter"]').hidden = !complete;
+    rootQuery('#save-note').textContent = !unlocked ? `完成${CITIES[index - 1].name}后解锁章节`
+      : done ? `已点亮 ${done} / ${city.end - city.first} 关` : '';
+    this.intro.querySelectorAll<HTMLButtonElement>('[data-journey^="theme-"]').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.dataset.journey === `theme-${city.key}`));
+    });
+    rootQuery('.homepage-attribution').hidden = city.key !== 'shanghai';
+    this.renderProgress(next, save.completed, true, save.best);
   }
 
   showWorkshop(editing: boolean): void {

@@ -127,7 +127,8 @@ test('draft recovery, trial verification and self-contained sharing', async ({ p
     currentLevel: 24, completed: Array.from({ length: 25 }, (_, i) => i), best: {}, muted: true,
   })), v3Key);
   await page.reload();
-  await page.getByRole('button', { name: '俯瞰夜城' }).click();
+  await page.getByRole('button', { name: '自由观赏' }).click();
+  await page.getByRole('button', { name: '重播复苏' }).click();
   await page.getByRole('button', { name: '再玩一次' }).click();
   const completed = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).completed, v3Key);
   expect(completed).toEqual([]);

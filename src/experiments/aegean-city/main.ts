@@ -4,7 +4,7 @@ import { atmosphereAndSea } from './atmosphere';
 import { city } from './city';
 import { cityLife } from './life';
 import { height, landscape } from './terrain';
-import './style.css';
+import { cityFrameFailed, connectPresentation, firstCityFrame } from '../presentation';
 
 const views = {
   city: { target: [0, 10, -5], camera: [65, 57, 130] },
@@ -16,7 +16,6 @@ const views = {
 type View = keyof typeof views;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const view = document.querySelector<HTMLElement>('#view')!;
-const status = document.querySelector<HTMLElement>('#status')!;
 const slider = document.querySelector<HTMLInputElement>('#time')!;
 const phase = document.querySelector<HTMLElement>('#phase')!;
 const clock = document.querySelector<HTMLOutputElement>('#clock')!;
@@ -54,7 +53,8 @@ function start() {
   landscape(scene);
   const lighting = atmosphereAndSea(scene, matchMedia('(pointer: coarse)').matches);
   const animateCity = cityLife(scene, city(scene));
-  let ceremony = new URLSearchParams(location.search).get('exhibit') === 'show';
+  let ceremony = false;
+  let homeMode = false;
   const target = new T.Vector3();
   const position = new T.Vector3();
   const offset = new T.Vector3();
@@ -91,7 +91,7 @@ function start() {
     target.fromArray(views[name].target);
     position.fromArray(views[name].camera);
     const portrait = T.MathUtils.clamp(.79 / camera.aspect, 1, 1.44);
-    position.sub(target).multiplyScalar(portrait).add(target);
+    position.sub(target).multiplyScalar(portrait * (homeMode ? 1.13 : 1)).add(target);
     if (instant || reducedMotion.matches) {
       controls.target.copy(target);
       camera.position.copy(position);
@@ -116,10 +116,10 @@ function start() {
     sizeRenderer();
     camera.aspect = width / height;
     camera.fov = 40 + 25 * (1 - T.MathUtils.smoothstep(camera.aspect,.44,.92));
-    camera.updateProjectionMatrix();
+    camera.clearViewOffset();
+    if (homeMode) camera.setViewOffset(width, height, width > 800 ? -width * .105 : 0, width <= 800 ? height * .13 : 0, width, height);
     if (framing || presets.some(p => p.getAttribute('aria-pressed') === 'true')) frameView(preset,true);
   }
-  resize();
   window.addEventListener('resize',resize);
 
   function setOrbit(active: boolean) {
@@ -154,14 +154,29 @@ function start() {
   }
   visibility.addEventListener('click',toggleUI);
   document.addEventListener('keydown',(event) => {
-    if (event.key.toLowerCase() === 'h' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey) toggleUI();
+    if (!homeMode && event.key.toLowerCase() === 'h' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey) toggleUI();
   });
-  if (ceremony) {
-    hour = 17.6;
-    slider.value = String(hour);
-    setPlay(true);
-  }
-  syncClock();
+  connectPresentation(mode => {
+    homeMode = mode === 'home';
+    ceremony = mode === 'show';
+    controls.enabled = !homeMode;
+    if (!homeMode && visibility.getAttribute('aria-expanded') === 'false') toggleUI();
+    if (homeMode || ceremony) {
+      hour = homeMode ? 18.55 : 17.6;
+      slider.value = String(hour);
+      preset = 'city';
+      framing = true;
+    }
+    setPlay(ceremony);
+    setOrbit(homeMode && !reducedMotion.matches);
+    resize();
+    syncClock();
+  });
+  reducedMotion.addEventListener('change', () => { if (homeMode) setOrbit(!reducedMotion.matches); });
+  renderer.domElement.addEventListener('webglcontextlost', () => {
+    renderer.setAnimationLoop(null);
+    cityFrameFailed('Aegean WebGL context lost');
+  });
 
   let elapsed = 0;
   let previous = performance.now();
@@ -209,13 +224,12 @@ function start() {
     const night = lighting(hour,elapsed);
     animateCity(elapsed,night);
     renderer.render(scene,camera);
-    status.hidden = true;
+    firstCityFrame();
   });
 }
 
 try {
   start();
 } catch (error) {
-  status.textContent = '无法载入三维场景，请检查浏览器 WebGL 支持。';
-  console.error(error);
+  cityFrameFailed(error);
 }
