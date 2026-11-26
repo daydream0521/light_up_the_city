@@ -71,16 +71,21 @@ const glassFragment = /* glsl */`
   }
 `;
 
-export const glass = [0,1,2,3,4,5].map(style=>new T.ShaderMaterial({
-  uniforms:{...atmos,style:{value:style},power:{value:0}},
-  vertexShader:glassVertex,fragmentShader:glassFragment,vertexColors:true,side:T.DoubleSide,
-}));
+function facade(style: number) {
+  return new T.ShaderMaterial({
+    uniforms:{...atmos,style:{value:style},power:{value:0}},
+    vertexShader:glassVertex,fragmentShader:glassFragment,vertexColors:true,side:T.DoubleSide,
+  });
+}
 
+export const glass = [0,1,2,3,4].map(facade);
+export const pearlGlass = [facade(1), facade(5)];
 const westPower={value:0};
-const nightSurfaces: {material:T.MeshStandardMaterial; stage:number; level:number}[] = [];
-export function luminous(color:string, stage:number, level=1) {
+type Region = 'bund' | 'waterfront' | 'pearl' | 'pudong';
+const nightSurfaces: {material:T.MeshStandardMaterial; region:Region; level:number; late:boolean}[] = [];
+export function luminous(color:string, region:Region, level=1, late=false) {
   const material=new T.MeshStandardMaterial({vertexColors:true,emissive:color,roughness:.68});
-  if(stage===0){
+  if(region==='bund'){
     material.onBeforeCompile=shader=>{
       shader.uniforms.westPower=westPower;
       shader.vertexShader='varying vec3 riverFacade;\n'+shader.vertexShader.replace(
@@ -93,17 +98,23 @@ export function luminous(color:string, stage:number, level=1) {
           totalEmissiveRadiance*=smoothstep(sequence-.12,sequence+.12,westPower)*wash;`);
     };
   }
-  nightSurfaces.push({material,stage,level});
+  nightSurfaces.push({material,region,level,late});
   return material;
 }
-export function setLights(bund: number,pudong: number,waterfront: number,time:number) {
+export function setLights(progress: readonly number[],time:number, revival:boolean) {
+  const [bund, waterfront, pearl, pudong] = progress;
+  const cues = { bund, waterfront, pearl, pudong };
   westPower.value=bund;
-  const cues=[bund,pudong,waterfront];
   glass.forEach((material,i)=>{
     material.uniforms.power.value=pudong*smooth(pudong,.05+i*.075,.48+i*.07);
   });
-  nightSurfaces.forEach(({material,stage,level})=>{
-    material.emissiveIntensity=cues[stage]*level;
+  pearlGlass.forEach((material,i)=>{
+    const style = i === 0 ? 1 : 5;
+    material.uniforms.power.value=pearl*smooth(pearl,.05+style*.075,.48+style*.07);
+  });
+  nightSurfaces.forEach(({material,region,level,late})=>{
+    const power = revival && late ? smooth(cues[region], .5, 1) : cues[region];
+    material.emissiveIntensity=power*level;
   });
   atmos.time.value=time;
 }

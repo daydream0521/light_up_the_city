@@ -5,17 +5,21 @@ import {mix,smooth} from './geometry';
 import {sites} from './landmarks';
 import {setLights,setupLighting} from './lighting';
 import {makeRiver,riverLife} from './river';
-import { cityFrameFailed, connectPresentation, firstCityFrame, reportCityControls, reportCityShow } from '../presentation';
+import { cityFrameFailed, connectPresentation, firstCityFrame, playRevival, reportCityControls, reportCityShow } from '../presentation';
 
 type Landmark=keyof typeof sites;
 const views={
   city:[[-121,256,347],[-14,0,1]],
   bund:[[-81,12,-38],[28,21,-39]],
   pudong:[[-25,29,-40],[-94,6,-40]],
+  waterfront:[[-79,29,35],[-35,2,1]],
+  lujiazui:[[-76,48,22],[55,28,-4]],
   heritage:[[-72,10,-44],[-95,4,-44]],
   top:[[2,296,-10],[2,0,-11]],
 } as const;
 type View=keyof typeof views|Landmark;
+// The free-view presets are named after the bank the viewer stands on.
+const revivalViews = ['pudong', 'waterfront', 'pearl', 'lujiazui'] as const;
 const close:Record<Landmark,[number,number,number,number]> = {
   pearl:[-64,24,40,23],
   tower:[-70,38,70,33],
@@ -60,6 +64,8 @@ function mount(){
   const before=new T.Vector3(), lastEye=new T.Vector3(), lastAim=new T.Vector3();
   let view:View='city', travel=false, selected=true, dirty=true, playing=false;
   let homeMode = false;
+  let revival: ReturnType<typeof playRevival> | undefined;
+  let targetFov = camera.fov;
   let time=0, hour=Number(slider.value), showStart:number|null=null;
   let pixelScale=1, slowFrames=0, frame=0, prev=performance.now(), reflectAt=-1;
 
@@ -93,14 +99,13 @@ function mount(){
       target.fromArray(aim);eye.fromArray(position);
     }
     const framed=name==='city';
-    camera.fov=(framed?27:40)+(framed?36:30)*(1-smooth(camera.aspect,.45,.95));
-    camera.updateProjectionMatrix();
+    targetFov=(framed?27:40)+(framed?36:30)*(1-smooth(camera.aspect,.45,.95));
     const portrait=T.MathUtils.clamp((framed?.98:.82)/camera.aspect,1,1.48);
     eye.sub(target).multiplyScalar(portrait * (homeMode ? 1.13 : 1)).add(target);
     presets.forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===name)));
     select.value=landmark?name:'';
     travel=!jump&&!reduced.matches;
-    if(!travel){controls.target.copy(target);camera.position.copy(eye);controls.update();}
+    if(!travel){camera.fov=targetFov;camera.updateProjectionMatrix();controls.target.copy(target);camera.position.copy(eye);controls.update();}
     dirty=true;
   }
   function resizeBuffer(){
@@ -168,32 +173,15 @@ function mount(){
   }
   $('hide').addEventListener('click',toggle);
   document.addEventListener('keydown',e=>{
-    if(!homeMode&&e.key.toLowerCase()==='h'&&!e.repeat&&!e.ctrlKey&&!e.metaKey&&!e.altKey)toggle();
+    if(!homeMode&&!revival&&e.key.toLowerCase()==='h'&&!e.repeat&&!e.ctrlKey&&!e.metaKey&&!e.altKey)toggle();
   });
   addEventListener('resize',resize);
-  connectPresentation(mode => {
-    homeMode = mode === 'home';
-    controls.enabled = !homeMode;
-    if (!homeMode && $('hide').getAttribute('aria-expanded') === 'false') toggle();
-    finishShow();
-    setPlay(false);
-    setOrbit(homeMode && !reduced.matches);
-    if (homeMode) {
-      hour = 19.65;
-      slider.value = String(hour);
-      view = 'city';
-      selected = true;
-    }
-    resize();
-    if (mode === 'show') startShow();
-    syncTime();
-  });
   reduced.addEventListener('change', () => { if (homeMode) setOrbit(!reduced.matches); });
   renderer.domElement.addEventListener('webglcontextlost', () => {
     renderer.setAnimationLoop(null);
     cityFrameFailed('Shanghai WebGL context lost');
   });
-  renderer.setAnimationLoop(now=>{
+  const animate = (now: number) => {
     const delta=now-prev;
     const dt=Math.min(.15,Math.max(0,delta/1000));
     prev=now;
@@ -204,11 +192,13 @@ function mount(){
         if(slowFrames>=11){pixelScale*=.78;slowFrames=0;resizeBuffer();}
       }
     }
+    const shot = revival?.(now, reduced.matches);
     if(travel){
       const a=1-Math.exp(-8*dt);
       camera.position.lerp(eye,a);controls.target.lerp(target,a);
+      camera.fov=mix(camera.fov,targetFov,a);camera.updateProjectionMatrix();
       if(camera.position.distanceToSquared(eye)<.02&&controls.target.distanceToSquared(target)<.02){
-        camera.position.copy(eye);controls.target.copy(target);travel=false;
+        camera.position.copy(eye);controls.target.copy(target);camera.fov=targetFov;camera.updateProjectionMatrix();travel=false;
       }
     }
     controls.update(dt);
@@ -227,21 +217,49 @@ function mount(){
       hour=(hour+Math.min(.8,Math.max(0,delta/1000))*.22)%24;
       slider.value=String(hour);syncTime();
     }
-    if(reduced.matches&&!dirty&&!playing&&!controls.autoRotate&&cue===null)return;
+    if(reduced.matches&&!dirty&&!playing&&!controls.autoRotate&&cue===null&&!shot?.animating)return;
     dirty=false;
     const night=light(hour);
     const bund=cue===null?smooth(night,.23,.89):smooth(cue,4,9.2);
     const pudong=cue===null?smooth(night,.34,.91):smooth(cue,9,17.2);
     const street=cue===null?smooth(night,.21,.81):smooth(cue,6.3,21.5);
-    setLights(bund,pudong,street,time);
-    life(time,street);
+    const progress = shot?.progress ?? [bund, street, pudong, pudong];
+    setLights(progress,time,shot!==undefined);
+    life(time,progress[1]);
     const cameraChanged=camera.position.distanceToSquared(lastEye)>.008||controls.target.distanceToSquared(lastAim)>.008;
-    if(cameraChanged||Math.abs(hour-reflectAt)>.015||frame%6===0){
+    if(cameraChanged||Math.abs(hour-reflectAt)>.015||frame%(shot?.animating?3:6)===0){
       refreshRiver();reflectAt=hour;lastEye.copy(camera.position);lastAim.copy(controls.target);
     }
     renderer.render(scene,camera);
     frame++;
     firstCityFrame();
+  };
+
+  connectPresentation((mode, progress) => {
+    if (mode === 'park') {
+      renderer.setAnimationLoop(null);
+      return;
+    }
+    homeMode = mode === 'home';
+    const wasRevisiting = revival !== undefined;
+    revival = progress && playRevival(progress, () => move('city'));
+    controls.enabled = !homeMode && !revival;
+    if (!homeMode && !revival && $('hide').getAttribute('aria-expanded') === 'false') toggle();
+    finishShow();
+    setPlay(false);
+    setOrbit(homeMode && !reduced.matches);
+    if (homeMode || revival || wasRevisiting) {
+      hour = revival ? 20.0 : homeMode ? 19.65 : hour;
+      slider.value = String(hour);
+      view = progress?.change ? revivalViews[progress.change.district] : 'city';
+      selected = true;
+    }
+    reflectAt = -1;
+    resize();
+    if (mode === 'show') startShow();
+    syncTime();
+    prev = performance.now();
+    renderer.setAnimationLoop(animate);
   });
 }
 

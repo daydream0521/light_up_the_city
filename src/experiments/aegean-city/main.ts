@@ -4,16 +4,19 @@ import { atmosphereAndSea } from './atmosphere';
 import { city } from './city';
 import { cityLife } from './life';
 import { height, landscape } from './terrain';
-import { cityFrameFailed, connectPresentation, firstCityFrame, reportCityControls, reportCityShow } from '../presentation';
+import { cityFrameFailed, connectPresentation, firstCityFrame, playRevival, reportCityControls, reportCityShow } from '../presentation';
 
 const views = {
   city: { target: [0, 10, -5], camera: [65, 57, 130] },
   temple: { target: [-19, 23.8, -24], camera: [5, 37, 10] },
+  acropolis: { target: [-14, 23, -22], camera: [16, 34, -3] },
+  market: { target: [0, 7.5, 1], camera: [25, 21, 43] },
   theatre: { target: [28, 4.8, -9], camera: [53, 29, -28] },
   harbour: { target: [16, 2.8, 22], camera: [42, 14.5, 51] },
   overhead: { target: [0, 0, -13], camera: [0, 190, -12.6] },
 } as const;
 type View = keyof typeof views;
+const revivalViews = ['harbour', 'market', 'theatre', 'acropolis'] as const;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const view = document.querySelector<HTMLElement>('#view')!;
 const slider = document.querySelector<HTMLInputElement>('#time')!;
@@ -54,6 +57,7 @@ function start() {
   const lighting = atmosphereAndSea(scene, matchMedia('(pointer: coarse)').matches);
   const animateCity = cityLife(scene, city(scene));
   let ceremony = false;
+  let revival: ReturnType<typeof playRevival> | undefined;
   let homeMode = false;
   const target = new T.Vector3();
   const position = new T.Vector3();
@@ -159,24 +163,7 @@ function start() {
   }
   visibility.addEventListener('click',toggleUI);
   document.addEventListener('keydown',(event) => {
-    if (!homeMode && event.key.toLowerCase() === 'h' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey) toggleUI();
-  });
-  connectPresentation(mode => {
-    homeMode = mode === 'home';
-    ceremony = mode === 'show';
-    controls.enabled = !homeMode;
-    if (!homeMode && visibility.getAttribute('aria-expanded') === 'false') toggleUI();
-    if (homeMode || ceremony) {
-      hour = homeMode ? 18.55 : 17.6;
-      slider.value = String(hour);
-      preset = 'city';
-      framing = true;
-    }
-    setPlay(ceremony);
-    if (ceremony) reportCityShow(true);
-    setOrbit(homeMode && !reducedMotion.matches);
-    resize();
-    syncClock();
+    if (!homeMode && !revival && event.key.toLowerCase() === 'h' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey) toggleUI();
   });
   reducedMotion.addEventListener('change', () => { if (homeMode) setOrbit(!reducedMotion.matches); });
   renderer.domElement.addEventListener('webglcontextlost', () => {
@@ -186,7 +173,7 @@ function start() {
 
   let elapsed = 0;
   let previous = performance.now();
-  renderer.setAnimationLoop(now => {
+  const animate = (now: number) => {
     const frameTime = now - previous;
     const dt = Math.min(.18, frameTime / 1000);
     // Lower the pixel workload when interactive rendering cannot keep up.
@@ -206,6 +193,7 @@ function start() {
       if (ceremony && hour >= 21) setPlay(false);
       syncClock();
     }
+    const shot = revival?.(now, reducedMotion.matches);
     if (framing) {
       const alpha = 1 - Math.exp(-dt * 7.5);
       controls.target.lerp(target,alpha);
@@ -225,12 +213,38 @@ function start() {
     camera.position.add(offset);
     camera.position.y = Math.max(camera.position.y, height(camera.position.x,camera.position.z) + 1, .75);
 
-    if (reducedMotion.matches && !dirty && !playing && !controls.autoRotate) return;
+    if (reducedMotion.matches && !dirty && !playing && !controls.autoRotate && !shot?.animating) return;
     dirty = false;
-    const night = lighting(hour,elapsed);
-    animateCity(elapsed,night);
+    const night = lighting(hour, elapsed, shot?.progress[0]);
+    animateCity(elapsed, night, shot?.progress);
     renderer.render(scene,camera);
     firstCityFrame();
+  };
+
+  connectPresentation((mode, progress) => {
+    if (mode === 'park') {
+      renderer.setAnimationLoop(null);
+      return;
+    }
+    homeMode = mode === 'home';
+    const wasRevisiting = revival !== undefined;
+    revival = progress && playRevival(progress, () => frameView('city'));
+    ceremony = mode === 'show';
+    controls.enabled = !homeMode && !revival;
+    if (!homeMode && !revival && visibility.getAttribute('aria-expanded') === 'false') toggleUI();
+    if (homeMode || ceremony || revival || wasRevisiting) {
+      hour = revival ? 20.25 : homeMode ? 18.55 : ceremony ? 17.6 : hour;
+      slider.value = String(hour);
+      preset = progress?.change ? revivalViews[progress.change.district] : 'city';
+      framing = true;
+    }
+    setPlay(ceremony);
+    if (ceremony) reportCityShow(true);
+    setOrbit(homeMode && !reducedMotion.matches);
+    resize();
+    syncClock();
+    previous = performance.now();
+    renderer.setAnimationLoop(animate);
   });
 }
 

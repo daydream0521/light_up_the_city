@@ -8,7 +8,7 @@
   <style>
     html, body { margin: 0; height: 100%; background: #11272c; color: #f2e9d9; color-scheme: dark; }
     html:not([data-scene-state="ready"]) body > :not(#status, #scene-retry) { visibility: hidden; }
-    html[data-scene-mode="home"] :is(.chrome, #hide, #visibility, #attribution) { display: none; }
+    html:is([data-scene-mode="home"], [data-scene-mode="revive"], [data-scene-mode="park"]) :is(.chrome, #hide, #visibility) { display: none; }
     #status, #scene-retry { position: fixed; left: 50%; transform: translateX(-50%); margin: 0;
       font: 14px system-ui, sans-serif; white-space: nowrap; }
     #status { top: 45%; }

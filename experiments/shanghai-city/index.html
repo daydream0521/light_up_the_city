@@ -6,9 +6,10 @@
   <meta name="theme-color" content="#10192b">
   <link rel="icon" href="data:,">
   <style>
+    html[data-scene-mode="home"] #attribution { display: none; }
     html, body { margin: 0; height: 100%; background: #10192b; color: #f2e9d9; color-scheme: dark; }
     html:not([data-scene-state="ready"]) body > :not(#status, #scene-retry) { visibility: hidden; }
-    html[data-scene-mode="home"] :is(.chrome, #hide, #visibility, #attribution) { display: none; }
+    html:is([data-scene-mode="home"], [data-scene-mode="revive"], [data-scene-mode="park"]) :is(.chrome, #hide, #visibility) { display: none; }
     #status, #scene-retry { position: fixed; left: 50%; transform: translateX(-50%); margin: 0;
       font: 14px system-ui, sans-serif; white-space: nowrap; }
     #status { top: 45%; }

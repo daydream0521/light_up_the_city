@@ -6,7 +6,10 @@ const cream = '#e1c8a1';
 const rust = '#a65540';
 const blue = '#3c6174';
 const occupied: [number, number, number][] = [];
-type Lamp = { x: number; y: number; z: number; large?: boolean };
+export type Lamp = {
+  x: number; y: number; z: number; district: number;
+  large?: boolean; late?: boolean; revivalOnly?: boolean;
+};
 
 function temple(root: T.Group, lamps: Lamp[]) {
   const y = 20.4;
@@ -83,7 +86,7 @@ function temple(root: T.Group, lamps: Lamp[]) {
   block(gate, cream, 0, .18, 0, 6.7, .36, 2.4);
   for (const x of [-2.5, -1.2, 1.2, 2.5]) column(gate, x, .36, -.3, 2.65, .28);
   block(gate, cream, 0, 3.05, -.3, 6.32, .45, 1.48);
-  for (const x of [-23.7, -15.1]) lamps.push({ x, y: y + 1.4, z: -13.4 });
+  for (const x of [-23.7, -15.1]) lamps.push({ x, y: y + 1.4, z: -13.4, district: 3, late: x < -20 });
 }
 
 function theatre(root: T.Group, lamps: Lamp[]) {
@@ -113,7 +116,7 @@ function theatre(root: T.Group, lamps: Lamp[]) {
   for (const x of [-3.8, -2.5, 2.5, 3.8]) column(site, x, .4, 5, 2, .21);
   for (const x of [-2.9, 0, 2.9]) block(site, dark, x, 1.09, 5.84, .85, 1.5, .06);
   block(site, rust, 0, 2.4, 5.48, 9.45, .23, 1.8);
-  for (const x of [-5, 5]) lamps.push({ x: 28 + x, y: y + 1.1, z: -3.6 });
+  for (const x of [-5, 5]) lamps.push({ x: 28 + x, y: y + 1.1, z: -3.6, district: 2, late: x > 0 });
 }
 
 function house(root: T.Group, lamps: Lamp[], x: number, z: number, w: number, d: number, rot: number, type: number) {
@@ -175,7 +178,7 @@ function house(root: T.Group, lamps: Lamp[], x: number, z: number, w: number, d:
     }
     block(site, wood, w / 2 + .04, 2.8, -1.48, .14, 1.62, .66);
   }
-  if (random() < .22) lamps.push({ x: x + w * .33, y: y + 1.5, z: z + d / 2 + .4 });
+  if (random() < .22) lamps.push({ x: x + w * .33, y: y + 1.5, z: z + d / 2 + .4, district: 1, late: Math.abs(Math.floor(x * 3 + z)) % 2 === 1 });
 }
 
 function agora(root: T.Group, lamps: Lamp[]) {
@@ -214,7 +217,7 @@ function agora(root: T.Group, lamps: Lamp[]) {
   rock(statue, patina, 0, 2.65, 0, .32, .42, .24);
   block(statue, patina, .43, 2.05, 0, .21, .89, .23).rotation.z = .58;
   block(statue, wood, .72, 2.22, 0, .067, 2.76, .067);
-  for (const x of [-8.6, 9.4]) lamps.push({ x, y: 6.4, z: 7.7, large: x > 0 });
+  for (const x of [-8.6, 9.4]) lamps.push({ x, y: 6.4, z: 7.7, large: x > 0, district: 1, late: x > 0 });
 }
 
 const houses: [number, number, number, number, number, number][] = [
@@ -284,7 +287,7 @@ function harbour(root: T.Group, lamps: Lamp[]) {
       }
     }
     for (let j = 0; j < 3; j++) block(pier, '#a38463', 0, .78 - .14*j, -d / 2 + j * .37, 2.9, .54 - .12*j, .46);
-    lamps.push({ x, y: 1.76, z: 17.8 + d, large: x === 21 });
+    lamps.push({ x, y: 1.76, z: 17.8 + d, large: x === 21, district: 0, late: x === 21 });
   }
   for (let z = 19; z < 34.8; z += .82) {
     for (let x = 32.9; x <= 35.1; x += .72) rock(root, pick(limestone), x + between(-.29,.29), .26, z,
@@ -296,7 +299,7 @@ function harbour(root: T.Group, lamps: Lamp[]) {
   for (const x of [-.92,.92]) for (const z of [-.91,.91]) column(beacon, x, 3.25, z, 1.38, .17);
   block(beacon, cream, 0, 3.23, 0, 2.97, .31, 2.94);
   roof(beacon, 4.69, 2.86, 2.85, .77);
-  lamps.push({ x: 34, y: 3.77, z: 33.5, large: true });
+  lamps.push({ x: 34, y: 3.77, z: 33.5, large: true, district: 0, late: true });
   for (const x of [3.8, 12.7, 19, 26.4]) {
     for (let i = 0; i < 6; i++) {
       const z = between(16.42, 17.11);
@@ -363,5 +366,15 @@ export function city(scene: T.Scene) {
   }
   grove(root, roads);
   bake(root, scene);
+  // Follow the public routes from the quay through the agora and up to the sanctuary.
+  for (const [x, z, district, late] of [
+    [3, 13.4, 0, 1], [7.2, 10.7, 1, 0], [-3, 8.15, 1, 0], [-10.4, 4.4, 1, 1],
+    [19, 8.2, 2, 0], [26.7, -.62, 2, 0], [24.35, -11.05, 2, 1], [31.9, -11.05, 2, 1],
+    [-11.4, -7.1, 3, 0], [-14.5, -9.7, 3, 0], [-17.1, -10.5, 3, 1], [-21.1, -13.5, 3, 1],
+  ]) {
+    const stageLight = district === 2 && (x === 26.7 || x === 31.9);
+    lamps.push({ x, y: height(x, z) + 1.5, z, district, late: !!late, large: stageLight, revivalOnly: true });
+  }
+  lamps.push({ x: -8.5, y: 22.35, z: -19.5, district: 3, large: true, late: true, revivalOnly: true });
   return lamps;
 }

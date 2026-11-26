@@ -386,13 +386,13 @@ export class GameUI {
     });
   }
 
-  showLevelComplete(level: LevelConfig, isFinal: boolean, rating: LevelRating, best: BestScore): void {
+  showLevelComplete(level: LevelConfig, isFinal: boolean, rating: LevelRating, best: BestScore, revival = false): void {
     this.shell.dataset.screen = 'complete';
     rootQuery('#toast-title').textContent = `${level.name}，亮了`;
     rootQuery('#toast-stars').innerHTML = [1, 2, 3].map((n) => `<span class="${n <= rating.stars ? 'star-on' : 'star-off'}">★</span>`).join('');
-    rootQuery('#toast-copy').textContent = isFinal ? '最后一片夜色退去，看看这座城市吧。' : '窗灯与街灯，会记住这束光。';
+    rootQuery('#toast-copy').textContent = revival ? '这束光将点亮城市的一角。' : isFinal ? '最后一片夜色退去，看看这座城市吧。' : '窗灯与街灯，会记住这束光。';
     rootQuery('#toast-score').textContent = `操作 ${rating.moves} 次 · 个人最佳 ${best.moves} 次`;
-    rootQuery('#next-label').textContent = isFinal ? '俯瞰全城' : '前往下一街区';
+    rootQuery('#next-label').textContent = revival ? '查看复苏' : isFinal ? '俯瞰全城' : '前往下一街区';
     this.toast.hidden = false;
     rootQuery<HTMLButtonElement>('[data-action="next"]').focus({ preventScroll: true });
   }

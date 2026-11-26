@@ -13,7 +13,10 @@ const choose=<V>(v:V[])=>v[Math.floor(random()*v.length)];
 const heritage=['#a99b87','#b4a392','#c6b39a','#8d7770','#ae9e93','#a59884'];
 const modern=['#3d7185','#587b98','#567d79','#375d78','#8b9eb1','#728ea6'];
 const concrete=['#727f92','#969594','#9f9c9a','#7d8490','#ada49b'];
-const lamps=luminous('#ffd099',2,1.95);
+const lamps = [
+  luminous('#ffd099','waterfront',1.95),
+  luminous('#ffd099','waterfront',1.95,true),
+];
 const bulb=new T.SphereGeometry(1,10,7);
 const leaves=new T.IcosahedronGeometry(1,1);
 const column=new T.CylinderGeometry(1,1,1,8);
@@ -126,7 +129,7 @@ export function createCity(scene:T.Scene) {
     const edge=promenade.map(([x,z])=>[x+sign*.54,z] as XY);
     const path=edge.map(([x,z])=>[x+sign*.72,z] as XY);
     add(strip(edge,1.54,.34),stone,side===0?'#c5b89f':'#a9aaa0');
-    add(strip(path,.09,.47),lamps,'#a2947b');
+    add(strip(path,.09,.47),lamps[side],'#a2947b');
     for(let i=1;i<edge.length;i++){
       const [x,z]=edge[i], [a,b]=edge[i-1];
       if(Math.hypot(x-a,z-b)>9)continue;
@@ -134,7 +137,7 @@ export function createCity(scene:T.Scene) {
       if(i%2===0){
         if(i%4===0)box(stone,'#746a60',x+sign*.68,.44,z,.29,.22,.73);
         box(stone,'#4a515e',x,.98,z,.066,1.27,.066);
-        add(bulb,lamps,'#fff0c4',x,1.63,z,.123,.10,.123);
+        add(bulb,lamps[side],'#fff0c4',x,1.63,z,.123,.10,.123);
       }
       if(i%2===1&&random()<.65) {
         const xx=x+sign*(2.2+random()*.72);
@@ -152,7 +155,7 @@ export function createCity(scene:T.Scene) {
     for(let k=-2;k<=2;k++){
       box(stone,'#646878',x-sign*3.35,.24,z+k*.91,.12,.48,.12);
     }
-    box(lamps,'#dac9a8',x-sign*2.9,.305,z,.085,.047,4.9);
+    box(lamps[side],'#dac9a8',x-sign*2.9,.305,z,.085,.047,4.9);
   }
   cityBlocks();
   landmarks();

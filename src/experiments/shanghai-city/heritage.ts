@@ -2,9 +2,9 @@ import * as T from 'three';
 import {add,box,extrude,inside,stone,type Polygon,type XY} from './geometry';
 import {luminous} from './lighting';
 
-const ashlar=luminous('#dd9856',0,.24);
-const cornice=luminous('#e5a064',0,.28);
-const rooms=luminous('#b97837',0,.35);
+const ashlar=luminous('#dd9856','bund',.24);
+const cornice=luminous('#e5a064','bund',.28);
+const rooms=luminous('#b97837','bund',.35);
 const trim='#e4cdb0';
 const dark='#37444a';
 const shaft=new T.CylinderGeometry(.92,1,1,12);

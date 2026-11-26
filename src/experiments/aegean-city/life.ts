@@ -1,4 +1,5 @@
 import * as T from 'three';
+import type { Lamp } from './city';
 import { bake, between, block, clay, group, jar, pick, piece, rock, wood } from './model';
 import { height } from './terrain';
 
@@ -121,7 +122,11 @@ function pennant(scene: T.Scene, x: number, y: number, z: number, color: string,
   };
 }
 
-export function cityLife(scene: T.Scene, markers: { x: number; y: number; z: number; large?: boolean }[]) {
+export function lampPower(progress: number, late: boolean): number {
+  return late ? T.MathUtils.smoothstep(progress, .52, .94) : T.MathUtils.smoothstep(progress, .06, .46);
+}
+
+export function cityLife(scene: T.Scene, markers: Lamp[]) {
   const movers = [
     ship(scene,9.6,26.9,-.08,.81,false), ship(scene,17.4,28.1,-.23,1.12,true),
     ship(scene,27.4,35.8,.71,.88,true), ship(scene,-14.5,42.7,-.88,1.19,true),
@@ -150,7 +155,7 @@ export function cityLife(scene: T.Scene, markers: { x: number; y: number; z: num
   map.needsUpdate = true;
   map.magFilter = T.LinearFilter;
   const flameGeometry = new T.SphereGeometry(.22, 9, 7);
-  const fires = [...markers, { x:18,y:2.87,z:18.4,large:true }].map(({x,y,z,large}) => {
+  const fires = [...markers, { x:18,y:2.87,z:18.4,large:true,district:0 }].map(({x,y,z,large,district,late,revivalOnly}) => {
     const torch = group(scene,x,y,z);
     block(torch,wood,0,-.79,0,.11,1.38,.11);
     piece(torch,new T.CylinderGeometry(.24,.105,.21,9),pick(clay),0,-.12,0);
@@ -160,24 +165,27 @@ export function cityLife(scene: T.Scene, markers: { x: number; y: number; z: num
     const glow = new T.Sprite(new T.SpriteMaterial({ map, transparent:true, depthWrite:false, blending:T.AdditiveBlending, toneMapped:false }));
     glow.position.y = .16;
     torch.add(glow);
-    const point = large ? new T.PointLight('#ff9a48',0,10,1.8) : null;
+    const point = large ? new T.PointLight('#ff9a48',0,revivalOnly ? 15 : 10,1.8) : null;
     if (point) {
       point.position.set(0,.26,.25);
       torch.add(point);
     }
-    return (t: number, night: number) => {
-      fire.visible = glow.visible = night > .16;
+    return (t: number, night: number, progress?: readonly number[]) => {
+      torch.visible = !revivalOnly || progress !== undefined;
+      const power = progress ? lampPower(progress[district], !!late)
+        : revivalOnly ? 0 : T.MathUtils.smoothstep(night, .16, .78);
+      fire.visible = glow.visible = power > 0;
       const flicker = .83 + Math.sin(t*17+x) * .10 + Math.sin(t*11+z)*.10;
-      const strength = T.MathUtils.smoothstep(night,.16,.78)*flicker;
+      const strength = power * flicker * (revivalOnly && large ? district === 3 ? 1.95 : 1.42 : 1);
       fire.scale.set(.53*strength,1.64*strength,.53*strength);
       fire.rotation.z = Math.sin(t*8+x)*.27;
       glow.scale.setScalar(2.9*strength);
-      glow.material.opacity = strength * .82;
-      if (point) point.intensity = strength * 43;
+      glow.material.opacity = Math.min(1, strength * .82);
+      if (point) point.intensity = strength * (revivalOnly ? 73 : 43);
     };
   });
-  return (t: number, night: number) => {
+  return (t: number, night: number, progress?: readonly number[]) => {
     movers.forEach(move => move(t));
-    fires.forEach(burn => burn(t,night));
+    fires.forEach(burn => burn(t,night,progress));
   };
 }

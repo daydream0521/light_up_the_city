@@ -1,6 +1,6 @@
 import * as T from 'three';
 import {add,box,loft,mix,stone} from './geometry';
-import {glass,luminous} from './lighting';
+import {glass,luminous,pearlGlass} from './lighting';
 
 export const sites = {
   pearl:[2.50,-65.50],
@@ -11,14 +11,15 @@ export const sites = {
   peace:[-100.06,-56.77],
 };
 const white='#b7c1ce', silver='#8b9fae', gray='#637789';
-const warm=luminous('#d78b46',0,.40);
-const limestone=luminous('#dc9a54',0,.25);
-const clockLight=luminous('#ffe7c0',0,1.15);
-const pearlPink=luminous('#ff457c',1,.94);
-const pearlRose=luminous('#d94271',1,.27);
-const pearlSeam=luminous('#e293b0',1,.34);
-const strips=luminous('#a4d5ff',1,.79);
-const brass=luminous('#eac181',1,.8);
+const warm=luminous('#d78b46','bund',.40);
+const limestone=luminous('#dc9a54','bund',.25);
+const clockLight=luminous('#ffe7c0','bund',1.15);
+const pearlPink=luminous('#ff457c','pearl',.94);
+const pearlRose=luminous('#d94271','pearl',.27);
+const pearlSeam=luminous('#e293b0','pearl',.34,true);
+const strips=luminous('#a4d5ff','pudong',.79);
+const pearlStrips=luminous('#a4d5ff','pearl',.79,true);
+const brass=luminous('#eac181','pudong',.8);
 
 const sphere=new T.SphereGeometry(1,36,22);
 const cylinder=new T.CylinderGeometry(1,1,1,18);
@@ -38,7 +39,7 @@ function rod(m:T.Material,c:string,a:T.Vector3,b:T.Vector3,r:number) {
 function pearl() {
   const [x,z]=sites.pearl;
   add(cylinder,stone,'#6e8492',x,.6,z,8.5,1.2,8.5);
-  add(cylinder,glass[1],'#5a829a',x,1.65,z,6.6,1.6,6.6);
+  add(cylinder,pearlGlass[0],'#5a829a',x,1.65,z,6.6,1.6,6.6);
   add(cylinder,stone,'#b5b5b3',x,2.47,z,7.15,.48,7.15);
   add(cylinder,stone,'#91a5a6',x,.39,z,8.88,.36,8.88);
   for(let j=0;j<28;j++){
@@ -50,7 +51,7 @@ function pearl() {
     const leg=(radius:number,y:number)=>new T.Vector3(x+Math.cos(a)*radius,y,z+Math.sin(a)*radius);
     rod(stone,white,leg(2.22,2),leg(2.22,27.25),.46);
     rod(stone,'#adb7bc',leg(7.7,.3),leg(2.45,12.2),.61);
-    rod(strips,'#adc9e3',leg(2.72,2.2),leg(2.72,26.3),.075);
+    rod(pearlStrips,'#adc9e3',leg(2.72,2.2),leg(2.72,26.3),.075);
   }
   for(const [y,r] of [[9.6,2.55],[27.1,2.15],[34.75,.83]]) {
     add(sphere,pearlRose,'#a12e5d',x,y,z,r,r,r);
@@ -59,7 +60,7 @@ function pearl() {
       add(ring,pearlPink,'#e47a98',x,y+q*r,z,rr,.86,rr);
     }
     if(r>1){
-      add(cylinder,glass[5],'#544f66',x,y-.26*r,z,r*.983,.18*r,r*.983);
+      add(cylinder,pearlGlass[1],'#544f66',x,y-.26*r,z,r*.983,.18*r,r*.983);
       for(let j=0;j<24;j++){
         const a=j*Math.PI/12;
         box(pearlSeam,'#b58a9d',x+Math.sin(a)*r*.982,y-.26*r,z+Math.cos(a)*r*.982,.052,r*.17,.044,a);

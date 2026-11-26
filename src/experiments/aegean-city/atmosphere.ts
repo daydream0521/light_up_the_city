@@ -1,4 +1,5 @@
 import * as T from 'three';
+import { lampPower } from './life';
 import { shoreDepth } from './terrain';
 
 const vertexShader = /* glsl */`
@@ -65,6 +66,7 @@ const seaFragment = /* glsl */`
   uniform vec3 shallow;
   uniform vec3 deep;
   uniform vec2 beacons[4];
+  uniform vec4 beaconPower;
 
   vec2 waveSlope(vec2 p, vec2 axis, float frequency, float speed, float amplitude) {
     float phase = dot(p, axis)*frequency + elapsed*speed;
@@ -96,7 +98,8 @@ const seaFragment = /* glsl */`
     float wash = sin(depth*97. - elapsed*2.6 + warp*3.8);
     float foam = (1.-smoothstep(.019,.10,depth))*smoothstep(.52,.94,wash)*smoothstep(.42,.72,warp);
     col += vec3(.24,.34,.30) * foam * (1.-night*.82);
-    if (night > .16) for (int i=0;i<4;i++) {
+    for (int i=0;i<4;i++) {
+      if (beaconPower[i] <= 0.) continue;
       vec2 base = beacons[i];
       if (distance(p,base) > 29.) continue;
       vec2 axis = normalize(cameraPosition.xz-base);
@@ -104,7 +107,7 @@ const seaFragment = /* glsl */`
       float along = dot(delta,axis);
       float across = dot(delta,vec2(-axis.y,axis.x)) + .38*sin(along*3.3-elapsed*2.);
       float trail = exp(-abs(across)*2.05) * exp(-abs(along)*.20) * smoothstep(-.3,.7,along);
-      col += smoothstep(.16,.78,night) * vec3(1.25,.44,.075) * trail * (.22 + .78*pow(.5+.5*sin(along*9.+warp*9.+elapsed*4.),3.));
+      col += beaconPower[i] * vec3(1.25,.44,.075) * trail * (.22 + .78*pow(.5+.5*sin(along*9.+warp*9.+elapsed*4.),3.));
     }
     col = mix(col, sky(normalize(vec3(-v.x,0.,-v.z))), smoothstep(210.,760.,range)*.87);
     gl_FragColor = vec4(col,1.);
@@ -143,9 +146,10 @@ export function atmosphereAndSea(scene: T.Scene, small: boolean) {
   const elapsed = { value: 0 };
   const deep = { value: new T.Color() };
   const shallow = { value: new T.Color() };
+  const beaconPower = { value: new T.Vector4() };
   const sea = new T.Mesh(new T.PlaneGeometry(1500, 1500).rotateX(-Math.PI / 2), new T.ShaderMaterial({
     vertexShader, fragmentShader: seaFragment,
-    uniforms: { ...u, shelf: { value: shoreDepth() }, elapsed, deep, shallow,
+    uniforms: { ...u, shelf: { value: shoreDepth() }, elapsed, deep, shallow, beaconPower,
       beacons: { value: [[6,27.6],[21,30.1],[34,33.5],[18,18.4]].map(([x,z]) => new T.Vector2(x,z)) } },
   }));
   sea.position.y = .015;
@@ -169,7 +173,7 @@ export function atmosphereAndSea(scene: T.Scene, small: boolean) {
   scene.add(sun, sun.target, ambient, moon);
   let previousHour = -20;
 
-  return (hour: number, time: number) => {
+  return (hour: number, time: number, harbour?: number) => {
     elapsed.value = time;
     const hi = palette.findIndex(key => key.h > hour);
     const a = palette[hi < 0 ? palette.length - 2 : hi - 1];
@@ -196,6 +200,12 @@ export function atmosphereAndSea(scene: T.Scene, small: boolean) {
       sun.position.copy(u.sunDir.value).multiplyScalar(111).add(sun.target.position);
       sun.shadow.needsUpdate = sun.intensity > .025;
       previousHour = hour;
+    }
+    if (harbour === undefined) beaconPower.value.setScalar(T.MathUtils.smoothstep(u.night.value, .16, .78));
+    else {
+      const near = lampPower(harbour, false);
+      const far = lampPower(harbour, true);
+      beaconPower.value.set(near, far, far, near);
     }
     return u.night.value;
   };

@@ -212,3 +212,24 @@ Chrome 创建、试玩验证并保存三种主题作品后，用独立 Edge 浏�
 ### 三城试听
 
 Chrome 从 Web Audio 主输出录制 [雨夜之城](audio/v32/rain.webm)、[爱琴余晖](audio/v32/aegean.webm)、[两岸灯火](audio/v32/shanghai.webm)和[上海演出起幕](audio/v32/shanghai-show.webm)。爱琴和上海的片段从切换主题时开始，包含交叉淡入。实测全局静音为零，三路音量拉至零后输出在测量噪声范围内。仅恢复环境音或操作音时均有独立输出。三个 12 秒立体声环境循环的接缝采样差均在同一轨道的常规采样差范围内。刷新后音量设置保留，观赏 iframe 未开辟额外音频输出。录音样本峰值均低于数字满幅的 14%。听感留待人工评价。
+
+## v3.3 渐进复苏验收
+
+### 同机位实拍
+
+两座城市各自固定机位、暮色和视口。验收时另拍了四个区域各自的半亮阶段，逐张对照城市画面，补强了爱琴剧场的舞台和看台照明，以及上海两岸灯带的先后顺序。
+
+| 城市 | 0% | 25% | 50% | 75% | 100% |
+| --- | --- | --- | --- | --- | --- |
+| 爱琴余晖 | [初始](screenshots/v33/aegean-0.png) | [港口](screenshots/v33/aegean-25.png) | [市集与居民区](screenshots/v33/aegean-50.png) | [剧场](screenshots/v33/aegean-75.png) | [卫城](screenshots/v33/aegean-100.png) |
+| 两岸灯火 | [初始](screenshots/v33/shanghai-0.png) | [外滩](screenshots/v33/shanghai-25.png) | [滨江](screenshots/v33/shanghai-50.png) | [东方明珠](screenshots/v33/shanghai-75.png) | [陆家嘴](screenshots/v33/shanghai-100.png) |
+
+Chrome 实录从最后一次解谜操作开始，包含结算、区域亮灯与全城拉远。三个片段为无声录屏。[爱琴港口复苏](video/v33/aegean-transition.webm) · [卫城圣火](video/v33/aegean-finale-transition.webm) · [上海章末亮灯](video/v33/shanghai-transition.webm)。
+
+### 浏览器回归
+
+- 在两座城市各解完 8 关，逐次等到区域复苏结束。下一关会暂停已加载的城市，继续复苏时复用同一 iframe。冷载保持实拍底图，入口模块被阻断时仍可跳过并继续。随后重玩首关，完成记录没有重复增加。刷新后从收藏打开「查看复苏」，正确恢复外滩的半亮状态。
+- 从空存档按「上海 → 雨夜 → 爱琴」完成 25 关并取得 25 份个人最佳。使用「再玩一次」后重进两座新城的全景，均回到 0%。
+- 上海自由观赏完整重播 24 秒灯光秀，时钟回报 21:03。动态首页、雨夜九关和工坊的草稿、试玩、分享与触摸回归通过。
+- 在 390 × 844 的 Chrome 触摸视口，通过上海第一关并进入下一关。单独开启操作音时测到了复苏提示音。另见 [手机实拍](screenshots/v33/shanghai-mobile.png)。
+- 生产构建通过，Vitest 62 项通过，Chrome Playwright 16 项分批通过。使用 Windows Chrome 和 ANGLE SwiftShader。实体手机和硬件加速表现留待验收。
