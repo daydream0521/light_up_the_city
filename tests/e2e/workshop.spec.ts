@@ -70,6 +70,11 @@ test('draft recovery, trial verification and self-contained sharing', async ({ p
   await expect(page.locator('#work-piece')).toHaveText('镜面 · / · 可调整');
   await action(page, 'save').click();
   await expect(page.locator('#work-state')).toHaveText('已验证 · 已保存');
+  const stored = await page.evaluate(() => JSON.parse(Object.entries(localStorage).find(([key]) =>
+    key.startsWith('light-up-the-city-work:'))![1]));
+  expect(stored.puzzle.pieces[0].state).toBe(0);
+  expect(stored.solution.final.pieceStates[0]).toBe(1);
+  expect(stored.solution.moves).toHaveLength(4);
   await action(page, 'share').click();
   const url = await page.locator('#work-url').inputValue();
   expect(url).toContain('#level=');
@@ -105,6 +110,9 @@ test('draft recovery, trial verification and self-contained sharing', async ({ p
   await expect(page.locator('#work-state')).toHaveText('草稿 · 未保存');
   await expect(action(page, 'share')).toBeDisabled();
   await action(page, 'save').click();
+  const edited = await page.evaluate(() => JSON.parse(Object.entries(localStorage).find(([key]) =>
+    key.startsWith('light-up-the-city-work:'))![1]));
+  expect(edited.solution).toBeUndefined();
   await action(page, 'library').click();
   const work = page.locator('.work-entry').filter({ hasText: '运河旁的光' });
   await work.getByRole('button', { name: '复制', exact: true }).click();
@@ -158,6 +166,20 @@ test.describe('touch editor', () => {
     await action(page, 'rotate').tap();
     await page.screenshot({ path: 'test-results/workshop-mobile.png', scale: 'css' });
     await action(page, 'trial').tap();
+    await expect(page.locator('#work-feedback')).toContainText('初始布局已经满足通关条件');
+    await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
+    await page.screenshot({ path: 'test-results/phase-b2-initial-win.png', scale: 'css' });
+    await expect(action(page, 'share')).toBeDisabled();
+    await action(page, 'save').tap();
+    await expect(page.locator('#work-state')).toHaveText('草稿 · 已保存');
+
+    // Turn the lamp out of its solved orientation before validating by playing.
+    await action(page, 'rotate').tap();
+    await action(page, 'trial').tap();
+    const trialPoint = await page.evaluate(() => (window as unknown as {
+      __qoderTest: { projectCell: (x: number, z: number) => { x: number; y: number } };
+    }).__qoderTest.projectCell(2, 2));
+    for (let i = 0; i < 3; i++) await page.touchscreen.tap(trialPoint.x, trialPoint.y);
     await expect(page.getByRole('heading', { name: '试玩通过' })).toBeVisible();
     await page.locator('#work-result').getByRole('button', { name: '返回编辑' }).tap();
     await action(page, 'save').tap();

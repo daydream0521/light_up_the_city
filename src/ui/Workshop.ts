@@ -4,6 +4,7 @@ import {
   DISTRICTS, NAME_LIMIT, PIECE_KINDS, deleteWork, newPuzzle, puzzleLevel, readWorks, saveWork, shareLink,
   type Puzzle, type Work,
 } from '../game/workshop';
+import type { TrialSolution } from '../game/reflectionPlay';
 import type { CityScene } from '../scene/CityScene';
 import { TOOL_LABELS } from './GameUI';
 
@@ -221,9 +222,14 @@ export class Workshop {
     this.find('#work-result [data-work="import"]').hidden = trial;
   }
 
-  markVerified(): void {
-    if (this.work.verified) return;
+  rejectInitialWin(): void {
+    this.editor();
+    this.feedback('初始布局已经满足通关条件。请调整布局后再试玩验证。');
+  }
+
+  markVerified(solution: TrialSolution): void {
     this.work.verified = true;
+    this.work.solution = structuredClone(solution);
     this.dirty = true;
   }
 
@@ -409,7 +415,10 @@ export class Workshop {
   }
 
   private afterEdit(affectsPlay: boolean, moveCamera: boolean): void {
-    if (affectsPlay) this.work.verified = false;
+    if (affectsPlay) {
+      this.work.verified = false;
+      delete this.work.solution;
+    }
     this.dirty = true;
     this.find('#work-share').hidden = true;
     this.updateEditor(affectsPlay || moveCamera, moveCamera);

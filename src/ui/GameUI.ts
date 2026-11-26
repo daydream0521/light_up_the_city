@@ -3,7 +3,7 @@ import type { ReflectionTrace } from '../game/reflection';
 import type { LevelRating } from '../game/score';
 import type { BestScore, SaveData } from '../game/storage';
 
-export type ToolSelection = PieceKind | 'erase' | null;
+import type { ToolSelection } from '../game/reflectionPlay';
 
 interface UICallbacks {
   onStart: () => void;

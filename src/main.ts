@@ -1,9 +1,9 @@
 import './styles.css';
 import './workshop.css';
 import { CityAudio } from './game/audio';
-import { LEVELS, type Direction, type GridPoint, type LevelConfig } from './game/levels';
+import { LEVELS, type GridPoint, type LevelConfig } from './game/levels';
 import {
-  canPlaceAt, initialReflectionState, inventoryLeft, placementZones, traceReflection,
+  initialReflectionState, inventoryLeft, placementZones, traceReflection,
   type ReflectionGameState,
 } from './game/reflection';
 import { puzzleLevel, readSharedPuzzle, type Puzzle } from './game/workshop';
@@ -11,7 +11,8 @@ import { Workshop } from './ui/Workshop';
 import { rateLevel } from './game/score';
 import { clearProgress, loadSave, writeSave, type SaveData } from './game/storage';
 import { CityScene, districtProgress } from './scene/CityScene';
-import { GameUI, type ToolSelection } from './ui/GameUI';
+import { GameUI } from './ui/GameUI';
+import { playCell, type CellMove, type ToolSelection } from './game/reflectionPlay';
 
 type GameState = 'intro' | 'workshop' | 'editor' | 'challengeReady' | 'playing' | 'levelComplete' | 'finale';
 
@@ -33,6 +34,7 @@ let customMode: 'trial' | 'challenge' | undefined;
 let reflectionState: ReflectionGameState = initialReflectionState(activeLevel);
 let tool: ToolSelection = null;
 let moves = 0;
+let trialMoves: CellMove[] = [];
 let hintDismiss: 'piece' | 'place' | 'source' | null = null;
 let toastTimer = 0;
 let nextTimer = 0;
@@ -158,6 +160,7 @@ function playCustom(puzzle: Puzzle, mode: 'trial' | 'challenge'): void {
 
 function resetCustomBoard(): boolean {
   moves = 0;
+  trialMoves = [];
   tool = null;
   hintDismiss = null;
   reflectionState = initialReflectionState(activeLevel);
@@ -171,6 +174,7 @@ function resetCustomBoard(): boolean {
 function startCustom(): void {
   if (!customMode) return;
   const won = resetCustomBoard();
+  if (won && customMode === 'trial') { workshop.rejectInitialWin(); return; }
   state = 'playing';
   workshop.showPlay(customMode, 'playing');
   if (won) completeLevel();
@@ -187,62 +191,22 @@ function dismissHint(action: 'piece' | 'place' | 'source'): void {
 function handleCell(at: GridPoint): void {
   if (state === 'editor') { workshop.handleCell(at); return; }
   if (state !== 'playing' || !scene) return;
-  const level = activeLevel;
-  const rs = reflectionState;
-  const sameCell = (point: GridPoint): boolean => point[0] === at[0] && point[1] === at[1];
-  const placementIndex = rs.placements.findIndex((placement) => sameCell(placement.at));
-
-  if (tool === 'erase') {
-    if (placementIndex >= 0) {
-      rs.placements.splice(placementIndex, 1);
-      moves += 1;
-      audio.rotate();
-      if (rs.placements.length === 0) setTool(null); else refreshReflection();
-    } else {
-      ui.announce('这个屋顶上没有你放置的器件。');
-    }
-    return;
+  const move = { at, tool };
+  const result = playCell(activeLevel, reflectionState, move);
+  switch (result) {
+    case null: return;
+    case 'noPlacement': ui.announce('这个屋顶上没有你放置的器件。'); return;
+    case 'noStock': ui.announce('这种器件已经用完了。'); return;
+    case 'occupied': ui.announce('这个屋顶不能放置器件。'); return;
+    case 'locked': ui.announce('这是固定器件，不能调整。'); return;
+    case 'fixed': ui.announce('这座光塔的方向是固定的。'); return;
   }
-  if (tool) {
-    const left = inventoryLeft(level, rs);
-    if (left[tool] <= 0) { ui.announce('这种器件已经用完了。'); return; }
-    if (!canPlaceAt(level, rs, at)) { ui.announce('这个屋顶不能放置器件。'); return; }
-    rs.placements.push({ at: [at[0], at[1]], kind: tool, state: 0 });
-    moves += 1;
-    audio.rotate();
-    dismissHint('place');
-    // 与原作一致：每次放置后取消选中，避免误把旋转点击当作放置。
-    setTool(null);
-    return;
-  }
-  if (placementIndex >= 0) {
-    const placement = rs.placements[placementIndex];
-    placement.state = (placement.state + 1) % (placement.kind === 'single' ? 4 : 2);
-    moves += 1;
-    audio.rotate();
-    dismissHint('piece');
-    refreshReflection();
-    return;
-  }
-  const pieceIndex = level.reflection.pieces.findIndex((piece) => sameCell(piece.at));
-  if (pieceIndex >= 0) {
-    const piece = level.reflection.pieces[pieceIndex];
-    if (piece.locked) { ui.announce(`${piece.id} 是固定器件，不能调整。`); return; }
-    rs.pieceStates[pieceIndex] = (rs.pieceStates[pieceIndex] + 1) % (piece.kind === 'single' ? 4 : 2);
-    moves += 1;
-    audio.rotate();
-    dismissHint('piece');
-    refreshReflection();
-    return;
-  }
-  if (sameCell(level.source)) {
-    if (!level.reflection.sourceRotatable) { ui.announce('这座光塔的方向是固定的。'); return; }
-    rs.sourceDirection = ((rs.sourceDirection + 1) % 4) as Direction;
-    moves += 1;
-    audio.rotate();
-    dismissHint('source');
-    refreshReflection();
-  }
+  moves += 1;
+  if (customMode === 'trial') trialMoves.push(move);
+  audio.rotate();
+  if (result !== 'erase') dismissHint(result);
+  if (result === 'place' || (result === 'erase' && reflectionState.placements.length === 0)) setTool(null);
+  else refreshReflection();
 }
 
 function selectTool(next: ToolSelection): void {
@@ -273,7 +237,7 @@ function completeLevel(): void {
   ui.clearHint();
   scene.setInteractive(false);
   if (customMode) {
-    if (customMode === 'trial') workshop.markVerified();
+    if (customMode === 'trial') workshop.markVerified({ final: reflectionState, moves: trialMoves });
     scene.celebrate();
     audio.success(false);
     workshop.showPlay(customMode, 'won');
