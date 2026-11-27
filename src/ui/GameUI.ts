@@ -99,7 +99,7 @@ export class GameUI {
             </div>
             <p class="city-note"><span id="save-note" class="save-note"></span><button class="home-preview" data-journey="preview" hidden>预览城市</button></p>
           </div>
-          <div class="intro-cities" aria-label="城市之旅">${CITIES.map(city => `<button data-journey="theme-${city.key}" aria-pressed="${city.key === 'rain'}"><img src="./journey/${city.key}.${city.key === 'rain' ? 'png' : 'jpg'}" alt=""><span>${city.name}</span></button>`).join('')}</div>
+          <div class="intro-cities" aria-label="城市之旅"><i class="intro-city-marker" aria-hidden="true"></i>${CITIES.map(city => `<button data-journey="theme-${city.key}" aria-pressed="${city.key === 'rain'}"><img src="./journey/${city.key}.${city.key === 'rain' ? 'png' : 'jpg'}" alt=""><span>${city.name}</span></button>`).join('')}</div>
           <a class="homepage-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" hidden>© OpenStreetMap contributors</a>
         </section>
 
@@ -112,7 +112,10 @@ export class GameUI {
           <div id="status-panel" class="status-panel" aria-label="通关条件">
             <div class="status-head">
               <span class="panel-title">通关条件</span>
-              <span class="move-chip">操作 <b id="move-count">0</b></span>
+              <div class="status-actions">
+                <button id="guide-toggle" type="button" data-guide="toggle" aria-controls="guide-panel" aria-expanded="false" hidden>寻光指引</button>
+                <span class="move-chip">操作 <b id="move-count">0</b></span>
+              </div>
             </div>
             <ul id="win-conditions" class="win-conditions"></ul>
           </div>
@@ -121,6 +124,21 @@ export class GameUI {
             <span class="dock-label">库存器件</span>
             <div id="tool-buttons" class="mirror-buttons"></div>
           </div>
+          <aside id="guide-panel" class="guide-panel" aria-labelledby="guide-title" hidden>
+            <div class="guide-heading"><h3 id="guide-title">寻光指引</h3><button class="icon-button" data-guide="close" aria-label="收起指引">×</button></div>
+            <p id="guide-copy"></p>
+            <div class="guide-actions">
+              <button class="icon-button" data-guide="idea">查看思路</button>
+              <button class="icon-button" data-guide="key">查看关键引导 · 最高 2 星</button>
+              <button class="icon-button" data-guide="warning">完整解法</button>
+              <button class="primary-button" data-guide="start">开始演示</button>
+              <button class="icon-button" data-guide="play">自动播放</button>
+              <button class="icon-button" data-guide="step">下一步</button>
+              <button class="icon-button" data-guide="layout">查看完整布局</button>
+              <button class="icon-button" data-guide="cancel">返回自己的尝试</button>
+              <button class="primary-button" data-guide="finish">确认引导通关</button>
+            </div>
+          </aside>
           <div class="camera-hint">拖动环视 <span>·</span> 滚轮缩放</div>
         </section>
 
@@ -145,7 +163,7 @@ export class GameUI {
 
         <section id="finale" class="finale-screen screen-layer" hidden>
           <div class="finale-copy">
-            <p class="finale-count" id="finale-count">${LEVELS.length} / ${LEVELS.length} 街区已点亮</p>
+            <p class="finale-count" id="finale-count">${LEVELS.length} / ${LEVELS.length} 关已点亮</p>
             <h2 id="finale-title">这座城市，因你而亮。</h2>
             <p id="finale-stars"></p>
             <button class="primary-button" data-journey="advance" hidden>继续旅程</button>
@@ -256,6 +274,7 @@ export class GameUI {
     rootQuery('#level-brief').hidden = true;
     rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = true;
     this.intro.dataset.theme = city.key;
+    rootQuery('.intro-cities').style.setProperty('--active-city', String(index));
     const [leading, trailing] = copy.querySelectorAll('h1 span');
     leading.textContent = city.title[0];
     trailing.textContent = city.title[1];
@@ -265,7 +284,7 @@ export class GameUI {
     rootQuery('#start-label').textContent = complete ? '自由观赏' : done > 0 ? '继续点亮' : '开始点亮';
     rootQuery('[data-journey="replay-chapter"]').hidden = !complete;
     rootQuery('#save-note').textContent = done ? `已点亮 ${done} / ${city.end - city.first} 关` : '';
-    rootQuery('[data-journey="preview"]').hidden = index === 0 || complete;
+    rootQuery('[data-journey="preview"]').hidden = complete;
     this.intro.querySelectorAll<HTMLButtonElement>('[data-journey^="theme-"]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.journey === `theme-${city.key}`));
     });
@@ -286,6 +305,7 @@ export class GameUI {
 
   showLevel(level: LevelConfig, completed: readonly number[], best: Record<number, BestScore>, hintText: string | null, mode?: 'trial' | 'challenge'): void {
     this.currentLevel = level;
+    rootQuery('#guide-toggle').hidden = !!mode;
     this.shell.dataset.screen = mode ?? 'playing';
     this.shell.dataset.city = CITIES[level.city ?? 0].key;
     this.intro.hidden = true;
@@ -386,12 +406,13 @@ export class GameUI {
     });
   }
 
-  showLevelComplete(level: LevelConfig, isFinal: boolean, rating: LevelRating, best: BestScore, revival = false): void {
+  showLevelComplete(level: LevelConfig, isFinal: boolean, rating: LevelRating, best: BestScore | undefined, revival = false, guided = false): void {
     this.shell.dataset.screen = 'complete';
     rootQuery('#toast-title').textContent = `${level.name}，亮了`;
-    rootQuery('#toast-stars').innerHTML = [1, 2, 3].map((n) => `<span class="${n <= rating.stars ? 'star-on' : 'star-off'}">★</span>`).join('');
+    rootQuery('#toast-stars').innerHTML = guided ? '' : [1, 2, 3].map((n) => `<span class="${n <= rating.stars ? 'star-on' : 'star-off'}">★</span>`).join('');
     rootQuery('#toast-copy').textContent = revival ? '这束光将点亮城市的一角。' : isFinal ? '最后一片夜色退去，看看这座城市吧。' : '窗灯与街灯，会记住这束光。';
-    rootQuery('#toast-score').textContent = `操作 ${rating.moves} 次 · 个人最佳 ${best.moves} 次`;
+    rootQuery('#toast-score').textContent = guided ? '引导完成 · 本次不计星级'
+      : `操作 ${rating.moves} 次 · 个人最佳 ${best!.moves} 次`;
     rootQuery('#next-label').textContent = revival ? '查看复苏' : isFinal ? '俯瞰全城' : '前往下一街区';
     this.toast.hidden = false;
     rootQuery<HTMLButtonElement>('[data-action="next"]').focus({ preventScroll: true });
@@ -401,20 +422,22 @@ export class GameUI {
     this.toast.hidden = true;
   }
 
-  showFinale(save: SaveData, preview = false, journeyComplete = false): void {
+  showFinale(save: SaveData, preview = false, journeyComplete = false, fullPreview = false): void {
     this.shell.dataset.screen = 'finale';
     this.shell.dataset.city = 'rain';
     this.hud.hidden = true;
     this.toast.hidden = true;
     this.intro.hidden = true;
     this.finale.hidden = false;
+    this.finale.dataset.view = fullPreview ? 'preview' : 'progress';
     rootQuery('#level-brief').hidden = true;
     rootQuery<HTMLButtonElement>('[data-action="brief"]').hidden = true;
     const rain = CITIES[0];
     const completed = save.completed.filter(id => id < rain.end);
     const totalStars = completed.reduce((sum, id) => sum + (save.best[id]?.stars ?? 0), 0);
-    rootQuery('#finale-count').textContent = `${completed.length} / ${rain.end} 街区已点亮`;
+    rootQuery('#finale-count').textContent = fullPreview ? '城市预览 · 全城亮灯' : `${completed.length} / ${rain.end} 关已点亮`;
     rootQuery('#finale-title').textContent = preview ? rain.name : journeyComplete ? '三座城市，灯火相连' : '这座城市，因你而亮。';
+    rootQuery('#finale-stars').hidden = fullPreview;
     rootQuery('#finale-stars').textContent = `收集 ${totalStars} / ${rain.end * 3} ★`;
     rootQuery('[data-action="replay"]').hidden = preview || !journeyComplete;
     rootQuery('[data-journey="advance"]').hidden = preview || journeyComplete;

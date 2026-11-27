@@ -259,3 +259,22 @@ button:focus-visible { outline: 2px solid var(--site-accent); outline-offset: 4p
 .brief-controls { margin: 12px 0 18px; color: #8aa2b8; }
 .brief-card .primary-button { width: 100%; justify-content: center; }
 @media (max-width: 720px) { .brief-card { max-width: 100%; padding: 20px 18px; } .brief-card h2 { font-size: 21px; } }
+
+
+.status-actions { display: flex; align-items: center; gap: 8px; }
+#guide-toggle { pointer-events: auto; min-height: 28px; padding: 2px 8px; color: var(--site-accent); border: 1px solid var(--site-border); background: #0a1728; border-radius: 6px; cursor: pointer; font-size: 11px; }
+#guide-toggle[aria-expanded="true"] { border-color: var(--site-accent); }
+.guide-panel { position: absolute; right: 16px; top: max(282px, 35%); width: min(290px, 34vw); padding: 12px; border-radius: 12px; border: 1px solid var(--site-border); background: #0b1729f7; color: #e5eefb; box-shadow: 0 8px 38px #0006; pointer-events: auto; }
+.guide-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.guide-heading h3 { margin: 0; font-size: 14px; color: var(--site-accent); }
+.guide-heading button { width: 34px; min-height: 33px; font-size: 20px; }
+.guide-panel p { margin: 6px 0 10px; font-size: 13px; line-height: 1.55; }
+.guide-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.guide-actions button, .guide-panel .icon-button { width: auto; min-height: 36px; padding-inline: 8px; font-size: 12px; }
+.guide-panel[data-mode="demo"] p { min-height: 3.1em; }
+.guide-actions [data-guide="play"] { min-width: 72px; }
+.guide-actions button:disabled { opacity: .45; cursor: default; }
+@media (max-width: 800px) {
+  .guide-panel { right: 12px; left: 12px; top: auto; bottom: 92px; width: auto; padding: 8px 10px; }
+  .guide-panel p { font-size: 12px; }
+}

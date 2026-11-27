@@ -64,6 +64,7 @@ function mount(){
   const before=new T.Vector3(), lastEye=new T.Vector3(), lastAim=new T.Vector3();
   let view:View='city', travel=false, selected=true, dirty=true, playing=false;
   let homeMode = false;
+  let previewMode = false;
   let revival: ReturnType<typeof playRevival> | undefined;
   let targetFov = camera.fov;
   let time=0, hour=Number(slider.value), showStart:number|null=null;
@@ -223,7 +224,7 @@ function mount(){
     const bund=cue===null?smooth(night,.23,.89):smooth(cue,4,9.2);
     const pudong=cue===null?smooth(night,.34,.91):smooth(cue,9,17.2);
     const street=cue===null?smooth(night,.21,.81):smooth(cue,6.3,21.5);
-    const progress = shot?.progress ?? [bund, street, pudong, pudong];
+    const progress = shot?.progress ?? (previewMode && cue === null ? [1, 1, 1, 1] : [bund, street, pudong, pudong]);
     setLights(progress,time,shot!==undefined);
     life(time,progress[1]);
     const cameraChanged=camera.position.distanceToSquared(lastEye)>.008||controls.target.distanceToSquared(lastAim)>.008;
@@ -241,6 +242,7 @@ function mount(){
       return;
     }
     homeMode = mode === 'home';
+    previewMode = mode === 'preview';
     const wasRevisiting = revival !== undefined;
     revival = progress && playRevival(progress, () => move('city'));
     controls.enabled = !homeMode && !revival;
@@ -248,8 +250,8 @@ function mount(){
     finishShow();
     setPlay(false);
     setOrbit(homeMode && !reduced.matches);
-    if (homeMode || revival || wasRevisiting) {
-      hour = revival ? 20.0 : homeMode ? 19.65 : hour;
+    if (homeMode || revival || wasRevisiting || mode === 'preview') {
+      hour = mode === 'preview' ? 20.6 : revival ? 20.0 : homeMode ? 19.65 : hour;
       slider.value = String(hour);
       view = progress?.change ? revivalViews[progress.change.district] : 'city';
       selected = true;

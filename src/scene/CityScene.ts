@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { GuideMove } from '../game/campaignGuide';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -64,6 +65,7 @@ export class CityScene {
   private readonly beamGroup = new THREE.Group();
   private readonly levelGroup = new THREE.Group();
   private readonly pieceGroup = new THREE.Group();
+  private readonly guideGroup = new THREE.Group();
   private readonly zoneGroup = new THREE.Group();
   private readonly beamRuns: BeamRun[] = [];
   private readonly pulses: THREE.Mesh[] = [];
@@ -162,7 +164,7 @@ export class CityScene {
     this.city = createCity();
     this.cityLife = createCityLife(this.city, this.reducedMotion);
     this.scene.add(this.city.group);
-    this.scene.add(this.levelGroup, this.beamGroup, this.pieceGroup, this.zoneGroup);
+    this.scene.add(this.levelGroup, this.beamGroup, this.pieceGroup, this.zoneGroup, this.guideGroup);
 
     this.rainCount = window.innerWidth < 800 ? 280 : 560;
     const rain = this.createRain(this.rainCount);
@@ -240,7 +242,7 @@ export class CityScene {
     this.showChapterBoard(level.city);
     this.setBoard(level, trace, reflectionState);
     this.layoutObserver.disconnect();
-    for (const selector of ['.play-overview', '.mirror-dock', '.work-editor-head', '.work-controls', '.work-settings']) {
+    for (const selector of ['.play-overview', '.mirror-dock', '.guide-panel', '.work-editor-head', '.work-controls', '.work-settings']) {
       const element = this.container.parentElement!.querySelector(selector);
       if (element) this.layoutObserver.observe(element);
     }
@@ -301,6 +303,43 @@ export class CityScene {
     }
   }
 
+  showGuide(move?: GuideMove): void {
+    this.disposeGroup(this.guideGroup);
+    if (!move) return;
+    const { at, kind, direction } = move;
+    const color = this.level.city === 1 ? '#ffd58b' : this.level.city === 2 ? '#a3dcfa' : '#69e6f2';
+    const ring = new THREE.Mesh(new THREE.RingGeometry(.48, .56, 40),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .9, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.copy(gridToWorld(this.level, at, 1.94));
+    this.guideGroup.add(ring);
+    if (direction === undefined) return;
+
+    if (kind === 'source') {
+      const arrow = new THREE.Mesh(new THREE.ConeGeometry(.14, .47, 12), new THREE.MeshBasicMaterial({ color }));
+      const heading = new THREE.Group();
+      arrow.rotation.x = Math.PI / 2;
+      arrow.position.z = .4;
+      heading.position.copy(gridToWorld(this.level, at, OPTICS_HEIGHT + .72));
+      heading.rotation.y = SOURCE_ROT_Y[direction];
+      heading.add(arrow);
+      this.guideGroup.add(heading);
+      return;
+    }
+
+    const ghost = this.createPieceVisual(kind, direction, false, at, true, false, false, false, false, this.guideGroup);
+    if (!move.tool) ghost.position.y += .67;
+    ghost.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      materials.forEach(material => {
+        (material as THREE.MeshStandardMaterial).map?.dispose();
+        material.dispose();
+      });
+      object.material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .46, depthWrite: false });
+    });
+  }
+
   projectCellToScreen(at: GridPoint): { x: number; y: number } | null {
     const projected = gridToWorld(this.level, at, PICK_HEIGHT).project(this.camera);
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -310,24 +349,26 @@ export class CityScene {
     };
   }
 
-  private createPieceVisual(kind: PieceKind, pieceState: number, locked: boolean, at: GridPoint, placed: boolean, lit: boolean, cpActive: boolean, hit: boolean, cpOver: boolean): void {
+  private createPieceVisual(kind: PieceKind, pieceState: number, locked: boolean, at: GridPoint, placed: boolean, lit: boolean, cpActive: boolean, hit: boolean, cpOver: boolean, parent = this.pieceGroup): THREE.Group {
     const root = new THREE.Group();
     root.position.copy(gridToWorld(this.level, at));
     const baseColor = placed ? '#2b4453' : kind === 'single' ? '#4a3a24' : kind === 'checkpoint' ? '#322a4d' : '#173849';
-    this.addRoofBase(root, baseColor);
+    if (parent === this.pieceGroup) this.addRoofBase(root, baseColor);
     // 状态环：未照到=灰、被照到=青、背灯点亮=金、闸门通过=紫、闸门超额=红。
     const ringColor = kind === 'checkpoint' && cpOver ? '#ff7d6b'
       : lit ? GOLD
         : cpActive ? '#b39dff'
           : hit ? CYAN : '#5a6b7a';
     const ringIntensity = kind === 'checkpoint' && cpOver ? 1.8 : lit ? 1.65 : cpActive ? 1.45 : hit ? .85 : 0.25;
-    const statusRing = new THREE.Mesh(
-      new THREE.TorusGeometry(0.52, 0.03, 8, 40),
-      new THREE.MeshStandardMaterial({ color: ringColor, emissive: ringColor, emissiveIntensity: ringIntensity, transparent: true, opacity: hit || lit || cpActive || cpOver ? 0.95 : 0.6 }),
-    );
-    statusRing.rotation.x = Math.PI / 2;
-    statusRing.position.y = 1.8;
-    root.add(statusRing);
+    if (parent === this.pieceGroup) {
+      const statusRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.52, 0.03, 8, 40),
+        new THREE.MeshStandardMaterial({ color: ringColor, emissive: ringColor, emissiveIntensity: ringIntensity, transparent: true, opacity: hit || lit || cpActive || cpOver ? 0.95 : 0.6 }),
+      );
+      statusRing.rotation.x = Math.PI / 2;
+      statusRing.position.y = 1.8;
+      root.add(statusRing);
+    }
     if (this.level.city) {
       const rotor = createChapterDevice(this.level.city, kind, lit, cpActive, this.pieceFlames);
       rotor.rotation.y = kind === 'checkpoint' ? pieceState * Math.PI / 2
@@ -382,7 +423,8 @@ export class CityScene {
     if (locked) {
       this.addLockMarker(root);
     }
-    this.pieceGroup.add(root);
+    parent.add(root);
+    return root;
   }
 
   private createGroundPickPlane(): void {
@@ -767,6 +809,7 @@ export class CityScene {
     } else {
       constrain('.play-overview', 'top');
       constrain('.mirror-dock', 'bottom');
+      constrain('.guide-panel', bounds.width <= 800 ? 'bottom' : 'right');
     }
     this.boardArea = {
       width: Math.max(180, area.right - area.left),
@@ -932,6 +975,7 @@ export class CityScene {
   }
 
   private clearLevel(): void {
+    this.disposeGroup(this.guideGroup);
     this.sourceFlames.length = 0;
     this.pieceFlames.length = 0;
     this.disposeGroup(this.pieceGroup);

@@ -32,6 +32,20 @@ describe('publication eligibility', () => {
     expect(await response.json()).not.toHaveProperty('solution');
   });
 
+  it('preserves valid theme fields and rejects unknown cities and regions before publication', async () => {
+    const data = candidate();
+    const store = insert();
+    const { city, ...legacy } = data.puzzle;
+    expect(city).toBe(0);
+    expect((await postPublication(request({ ...data, puzzle: legacy }), store)).status).toBe(201);
+    expect(store.mock.calls[0][0].puzzle.city).toBeUndefined();
+
+    for (const puzzle of [{ ...data.puzzle, city: 3 }, { ...data.puzzle, district: 4 }]) {
+      expect((await postPublication(request({ ...data, puzzle }), store)).status).toBe(422);
+    }
+    expect(store).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects legacy verified flags, an initial win, locked changes and stale proofs', async () => {
     const store = insert();
     const clean = candidate();

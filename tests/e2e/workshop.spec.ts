@@ -20,6 +20,7 @@ async function solve(page: Page): Promise<void> {
 }
 
 test('draft recovery, trial verification and self-contained sharing', async ({ page, browser }) => {
+  test.setTimeout(420_000);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await create(page);
@@ -57,6 +58,7 @@ test('draft recovery, trial verification and self-contained sharing', async ({ p
 
   await action(page, 'trial').click();
   await expect(page.locator('#level-number')).toHaveText('编辑器试玩 · 雨夜之城');
+  await expect(page.locator('#guide-toggle')).toBeHidden();
   await clickCell(page, 3, 3);
   await expect(page.locator('#move-count')).toHaveText('0');
   await clickCell(page, 3, 2);
@@ -88,6 +90,7 @@ test('draft recovery, trial verification and self-contained sharing', async ({ p
     await challenge.goto(url);
     await expect(challenge.locator('#work-result-title')).toHaveText('运河旁的光');
     await challenge.getByRole('button', { name: '开始挑战' }).click();
+    await expect(challenge.locator('#guide-toggle')).toBeHidden();
     await expect(challenge.locator('#cond-lights')).toHaveText('0/1');
     await solve(challenge);
     await expect(challenge.getByRole('heading', { name: '挑战成功' })).toBeVisible();

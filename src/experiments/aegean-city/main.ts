@@ -59,6 +59,7 @@ function start() {
   let ceremony = false;
   let revival: ReturnType<typeof playRevival> | undefined;
   let homeMode = false;
+  let previewMode = false;
   const target = new T.Vector3();
   const position = new T.Vector3();
   const offset = new T.Vector3();
@@ -215,8 +216,9 @@ function start() {
 
     if (reducedMotion.matches && !dirty && !playing && !controls.autoRotate && !shot?.animating) return;
     dirty = false;
-    const night = lighting(hour, elapsed, shot?.progress[0]);
-    animateCity(elapsed, night, shot?.progress);
+    const power = shot?.progress ?? (previewMode ? [1, 1, 1, 1] : undefined);
+    const night = lighting(hour, elapsed, power?.[0]);
+    animateCity(elapsed, night, power);
     renderer.render(scene,camera);
     firstCityFrame();
   };
@@ -227,13 +229,14 @@ function start() {
       return;
     }
     homeMode = mode === 'home';
+    previewMode = mode === 'preview';
     const wasRevisiting = revival !== undefined;
     revival = progress && playRevival(progress, () => frameView('city'));
     ceremony = mode === 'show';
     controls.enabled = !homeMode && !revival;
     if (!homeMode && !revival && visibility.getAttribute('aria-expanded') === 'false') toggleUI();
-    if (homeMode || ceremony || revival || wasRevisiting) {
-      hour = revival ? 20.25 : homeMode ? 18.55 : ceremony ? 17.6 : hour;
+    if (homeMode || ceremony || revival || wasRevisiting || mode === 'preview') {
+      hour = previewMode || revival ? 20.25 : homeMode ? 18.55 : ceremony ? 17.6 : hour;
       slider.value = String(hour);
       preset = progress?.change ? revivalViews[progress.change.district] : 'city';
       framing = true;

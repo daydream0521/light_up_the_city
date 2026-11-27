@@ -2,6 +2,7 @@ import './styles.css';
 import './workshop.css';
 import './journey.css';
 import { CITIES, chapterStatus, cityOf, isLevelUnlocked, phaseProgress, type CityIndex } from './game/journey';
+import { APPROACHES, referenceMoves, type GuideMove } from './game/campaignGuide';
 import { CityAudio } from './game/audio';
 import { LEVELS, type GridPoint, type LevelConfig } from './game/levels';
 import {
@@ -15,7 +16,7 @@ import { clearProgress, loadSave, writeSave, type SaveData } from './game/storag
 import { CityScene, districtProgress } from './scene/CityScene';
 import type { CityRevival } from './experiments/presentation';
 import { CitySurface } from './ui/CitySurface';
-import { GameUI } from './ui/GameUI';
+import { GameUI, TOOL_LABELS } from './ui/GameUI';
 import { playCell, type CellMove, type ToolSelection } from './game/reflectionPlay';
 
 type GameState = 'intro' | 'workshop' | 'editor' | 'challengeReady' | 'playing' | 'levelComplete' | 'finale' | 'collection' | 'exhibit' | 'revival';
@@ -43,6 +44,11 @@ let hintDismiss: 'piece' | 'place' | 'source' | null = null;
 let toastTimer = 0;
 let nextTimer = 0;
 let pendingRevival: CityRevival | undefined;
+type GuideMode = 'closed' | 'menu' | 'idea' | 'key' | 'warning' | 'demo' | 'confirm';
+let guideMode: GuideMode = 'closed';
+let guideTier: 0 | 1 | 2 = 0;
+let demo: { board: ReflectionGameState; steps: GuideMove[]; cursor: number; autoplay: boolean } | undefined;
+let demoTimer = 0;
 const audio = new CityAudio();
 
 const ui = new GameUI(document.querySelector<HTMLElement>('#app')!, {
@@ -59,6 +65,16 @@ const ui = new GameUI(document.querySelector<HTMLElement>('#app')!, {
 });
 
 const shell = document.querySelector<HTMLElement>('.game-shell')!;
+const guidePanel = shell.querySelector<HTMLElement>('#guide-panel')!;
+const guideToggle = shell.querySelector<HTMLButtonElement>('#guide-toggle')!;
+const toolDock = shell.querySelector<HTMLElement>('#tool-dock')!;
+shell.addEventListener('click', event => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-guide]');
+  if (button && !button.disabled && state === 'playing' && !customMode) guideAction(button.dataset.guide);
+});
+window.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && guideMode !== 'closed') guideAction('close');
+});
 const citySurface = new CitySurface(shell, (playing) => {
   if (state === 'exhibit') audio.setScene(observedCity, playing ? 'show' : 'view');
   if (state === 'revival') {
@@ -118,6 +134,7 @@ shell.addEventListener('click', (event) => {
   }
   else if (action?.startsWith('progress-')) {
     const index = CITIES.findIndex(city => action === `progress-${city.key}`);
+    if (index === 0) showCity(0, false, true);
     if (index === 1 || index === 2) showProgress(index, { progress: phaseProgress(index, save.completed) });
   }
   else if (action?.startsWith('observe-')) showCity(CITIES.findIndex(city => action === `observe-${city.key}`) as CityIndex);
@@ -165,7 +182,7 @@ function showCollection(selected: CityIndex): void {
     <section class="journey-chapter" aria-label="${CITIES[selected].name}选关">
       <div class="journey-chapter-head">
         <h3>${CITIES[selected].name} · 章节关卡</h3>
-        ${selected ? `<button class="icon-button" data-journey="progress-${CITIES[selected].key}">查看复苏</button>` : ''}
+        <button class="icon-button" data-journey="progress-${CITIES[selected].key}">查看复苏</button>
       </div>
       <div class="journey-levels">${LEVELS.slice(CITIES[selected].first, CITIES[selected].end).map(level =>
         `<button class="icon-button" data-journey="level-${level.id}" ${isLevelUnlocked(level.id, save.completed) ? '' : 'disabled'}
@@ -180,7 +197,7 @@ function nextChapter(): CityIndex | null {
   return next === -1 ? null : next as CityIndex;
 }
 
-function showCity(index: CityIndex, ceremony = false): void {
+function showCity(index: CityIndex, ceremony = false, savedProgress = false): void {
   const city = CITIES[index];
   if (!city) return;
   clearTimers();
@@ -193,8 +210,10 @@ function showCity(index: CityIndex, ceremony = false): void {
   const completed = LEVELS.slice(city.first, city.end).every(level => save.completed.includes(level.id));
   if (city.key === 'rain') {
     state = 'finale';
-    ui.showFinale(save, !ceremony, nextChapter() === null);
-    scene.showFinale(completed);
+    const preview = !completed && !ceremony && !savedProgress;
+    ui.showFinale(save, !ceremony, nextChapter() === null, preview);
+    scene.setCompletedDistricts(save.completed);
+    scene.showFinale(!savedProgress || completed);
     return;
   }
   state = 'exhibit';
@@ -203,7 +222,7 @@ function showCity(index: CityIndex, ceremony = false): void {
   scene.setRendering(false);
   exhibit.hidden = false;
   const next = nextChapter() !== null;
-  citySurface.show(city, ceremony ? 'show' : 'view');
+  citySurface.show(city, ceremony ? 'show' : completed ? 'view' : 'preview');
   exhibit.innerHTML = `<div class="journey-exhibit-actions">
       <span><strong>${city.name}</strong>${ceremony && !next ? '三座城市，灯火相连' : completed ? '章节已复苏' : '城市预览'}</span>
       <button class="icon-button" data-journey="collection">城市收藏</button>
@@ -355,6 +374,7 @@ function loadLevel(index: number, immediate = false): void {
   const trace = traceReflection(level, reflectionState);
   ui.showLevel(level, save.completed, save.best, hint?.text ?? null);
   ui.updateReflection(trace, inventoryLeft(level, reflectionState), 0, null, 0);
+  scene.setCompletedDistricts(save.completed);
   scene.setChapterProgress(phaseProgress(cityOf(index), save.completed));
   scene.setLevel(level, trace, immediate, reflectionState);
   scene.setInteractive(true);
@@ -380,7 +400,10 @@ function renderHome(index: CityIndex, direction = 0): void {
   homeCity = index;
   workshop.hide();
   audio.setScene(index, 'home');
-  if (index === 0) scene.showIntro();
+  if (index === 0) {
+    scene.setCompletedDistricts(save.completed);
+    scene.showIntro();
+  }
   else {
     scene.setRendering(false);
     const city = CITIES[index];
@@ -436,9 +459,164 @@ function dismissHint(action: 'piece' | 'place' | 'source'): void {
   }
 }
 
+function describeGuideMove(move: GuideMove, applied = false): string {
+  const name = move.kind === 'source' ? '光塔' : TOOL_LABELS[move.kind];
+  const cell = `第 ${move.at[1] + 1} 行第 ${move.at[0] + 1} 列`;
+  if (move.tool === 'erase') return `${cell}的${name}与这条参考路线冲突。先选「取回」收起它。`;
+  if (move.tool) return applied ? `已将${name}放在${cell}。`
+    : `从库存选${name}，放在高亮的${cell}。半透明器件显示放下时的初始朝向。`;
+  const direction = move.direction!;
+  const compass = ['东', '南', '西', '北'];
+  const facing = move.kind === 'source' ? compass[direction]
+    : move.kind === 'single' ? `背灯朝${compass[(direction + 3) % 4]}`
+    : move.kind === 'checkpoint' ? ['南北轴', '东西轴'][direction] : ['/', '\\'][direction];
+  if (applied) return `${name}转到 ${facing}。`;
+  return `${tool ? '先取消选中的库存工具。' : ''}点击高亮的${name}一次，转到 ${facing}。`;
+}
+
+function renderGuide(mode = guideMode): void {
+  guideMode = mode;
+  guidePanel.hidden = mode === 'closed';
+  guidePanel.dataset.mode = mode;
+  guideToggle.setAttribute('aria-expanded', String(!guidePanel.hidden));
+  toolDock.inert = mode === 'demo' || mode === 'confirm';
+  const step = mode === 'key' ? referenceMoves(activeLevel, reflectionState)[0] : undefined;
+  const previousStep = demo?.steps[demo.cursor - 1];
+  scene.showGuide(step ?? (previousStep && { ...previousStep, direction: undefined }));
+  if (mode === 'closed') return;
+
+  const won = !!demo && traceReflection(activeLevel, demo.board).won;
+  const ended = !!demo && demo.cursor >= demo.steps.length;
+  const actions: Record<Exclude<GuideMode, 'closed'>, string[]> = {
+    menu: ['close', 'idea'],
+    idea: ['close', 'key'],
+    key: ['close', 'warning'],
+    warning: ['close', 'start', 'cancel'],
+    demo: ['play', 'step', 'layout', 'cancel', 'finish'],
+    confirm: ['finish'],
+  };
+  const copy: Record<Exclude<GuideMode, 'closed'>, string> = {
+    menu: guideTier === 2 ? '本次已看过演示，通关将记为引导完成。'
+      : guideTier === 1 ? '本次已使用关键引导，最高可得 2 星。' : '先看这道题的解题思路。',
+    idea: APPROACHES[currentLevel],
+    key: step ? describeGuideMove(step) : '参考布局已就位。请检查通关条件。',
+    warning: '演示会从初始布局开始。本次挑战将计为引导完成、不授予星级。返回时会恢复你的棋盘。',
+    demo: demo ? `第 ${demo.cursor} / ${demo.steps.length} 步 · ${won
+      ? '所有通关条件已满足。' : previousStep ? describeGuideMove(previousStep, true) : '演示从初始布局开始。'}` : '',
+    confirm: '所有通关条件已满足。确认后将计为引导通关。',
+  };
+  guidePanel.querySelector('#guide-copy')!.textContent = copy[mode];
+  for (const button of guidePanel.querySelectorAll<HTMLButtonElement>('button[data-guide]')) {
+    const action = button.dataset.guide!;
+    button.hidden = !actions[mode].includes(action);
+    button.disabled = action === 'finish' ? mode === 'demo' && !won
+      : ended && ['play', 'step', 'layout'].includes(action);
+    if (action === 'play') button.textContent = demo?.autoplay ? '暂停' : '自动播放';
+  }
+}
+
+function drawDemo(): void {
+  if (!demo) return;
+  const trace = traceReflection(activeLevel, demo.board);
+  scene.setReflection(demo.board, trace);
+  ui.updateReflection(trace, inventoryLeft(activeLevel, demo.board), demo.board.placements.length, null, demo.cursor);
+  renderGuide('demo');
+}
+
+function advanceDemo(all = false): void {
+  if (!demo) return;
+  const end = all ? demo.steps.length : Math.min(demo.cursor + 1, demo.steps.length);
+  while (demo.cursor < end) {
+    const move = demo.steps[demo.cursor];
+    const result = playCell(activeLevel, demo.board, move);
+    if (result !== 'source' && result !== 'piece' && result !== 'place') {
+      stopDemoPlayback();
+      drawDemo();
+      guidePanel.querySelector('#guide-copy')!.textContent = '参考操作无法继续。可返回自己的尝试。';
+      return;
+    }
+    demo.cursor += 1;
+  }
+  if (demo.cursor >= demo.steps.length) stopDemoPlayback();
+  drawDemo();
+  if (demo.autoplay) demoTimer = window.setTimeout(advanceDemo, 610);
+}
+
+function stopDemoPlayback(): void {
+  window.clearTimeout(demoTimer);
+  if (demo) demo.autoplay = false;
+}
+
+function guideAction(action?: string): void {
+  if (state !== 'playing' || customMode) return;
+  if (guideMode === 'confirm' && action !== 'finish') return;
+  switch (action) {
+    case 'toggle':
+      if (guideMode === 'closed') renderGuide('menu');
+      else guideAction('close');
+      break;
+    case 'close':
+    case 'cancel':
+      stopDemoPlayback();
+      if (demo) {
+        demo = undefined;
+        scene.setInteractive(true);
+        renderGuide('closed');
+        setTool(tool);
+      } else renderGuide('closed');
+      guideToggle.focus({ preventScroll: true });
+      break;
+    case 'idea': renderGuide('idea'); break;
+    case 'key':
+      if (guideTier === 0) guideTier = 1;
+      renderGuide('key');
+      break;
+    case 'warning': renderGuide('warning'); break;
+    case 'start': {
+      if (guideMode !== 'warning') return;
+      const board = initialReflectionState(activeLevel);
+      guideTier = 2;
+      demo = { board, steps: referenceMoves(activeLevel, board), cursor: 0, autoplay: false };
+      scene.setInteractive(false);
+      scene.setToolZones([]);
+      drawDemo();
+      break;
+    }
+    case 'play':
+      if (!demo) return;
+      if (demo.autoplay) {
+        stopDemoPlayback();
+        renderGuide();
+      } else {
+        demo.autoplay = true;
+        renderGuide();
+        demoTimer = window.setTimeout(advanceDemo, 610);
+      }
+      break;
+    case 'step':
+    case 'layout':
+      stopDemoPlayback();
+      advanceDemo(action === 'layout');
+      break;
+    case 'finish': {
+      if (guideMode !== 'demo' && guideMode !== 'confirm') return;
+      const board = demo?.board ?? reflectionState;
+      if (!traceReflection(activeLevel, board).won) return;
+      stopDemoPlayback();
+      if (demo) {
+        reflectionState = board;
+        moves = demo.cursor;
+        demo = undefined;
+      }
+      completeLevel();
+      break;
+    }
+  }
+}
+
 function handleCell(at: GridPoint): void {
   if (state === 'editor') { workshop.handleCell(at); return; }
-  if (state !== 'playing' || !scene) return;
+  if (state !== 'playing' || !scene || demo || guideMode === 'confirm') return;
   const move = { at, tool };
   const result = playCell(activeLevel, reflectionState, move);
   switch (result) {
@@ -458,7 +636,7 @@ function handleCell(at: GridPoint): void {
 }
 
 function selectTool(next: ToolSelection): void {
-  if (state !== 'playing') return;
+  if (state !== 'playing' || demo || guideMode === 'confirm') return;
   setTool(tool === next ? null : next);
 }
 
@@ -476,11 +654,18 @@ function refreshReflection(): void {
   const trace = traceReflection(level, reflectionState);
   scene.setReflection(reflectionState, trace);
   ui.updateReflection(trace, inventoryLeft(level, reflectionState), reflectionState.placements.length, tool, moves);
-  if (trace.won && state === 'playing') completeLevel();
+  if (guideMode === 'key') renderGuide();
+  if (trace.won && state === 'playing') {
+    if (!customMode && guideTier === 2) {
+      scene.setInteractive(false);
+      renderGuide('confirm');
+    } else completeLevel();
+  }
 }
 
 function completeLevel(): void {
   state = 'levelComplete';
+  renderGuide('closed');
   hintDismiss = null;
   ui.clearHint();
   scene.setInteractive(false);
@@ -492,8 +677,11 @@ function completeLevel(): void {
     return;
   }
   const rating = rateLevel(LEVELS[currentLevel], moves);
+  const guided = guideTier === 2;
+  if (guideTier === 1) rating.stars = Math.min(2, rating.stars);
   const previous = save.best[currentLevel];
-  if (!previous || rating.moves < previous.moves) {
+  if (!guided && (!previous || rating.stars > previous.stars
+    || (rating.stars === previous.stars && rating.moves < previous.moves))) {
     save.best[currentLevel] = { moves: rating.moves, stars: rating.stars };
   }
   const city = cityOf(currentLevel);
@@ -513,7 +701,7 @@ function completeLevel(): void {
   audio.success(chapterEnd && city === 0);
   const best = save.best[currentLevel];
   toastTimer = window.setTimeout(() => {
-    ui.showLevelComplete(LEVELS[currentLevel], chapterEnd, rating, best, !!pendingRevival);
+    ui.showLevelComplete(LEVELS[currentLevel], chapterEnd, rating, best, !!pendingRevival, guided);
   }, 750);
   if (pendingRevival || !chapterEnd) nextTimer = window.setTimeout(nextLevel, pendingRevival ? 1550 : 3600);
 }
@@ -568,6 +756,10 @@ async function toggleMute(): Promise<void> {
 }
 
 function clearTimers(): void {
+  stopDemoPlayback();
+  demo = undefined;
+  guideTier = 0;
+  if (guideMode !== 'closed') renderGuide('closed');
   pendingRevival = undefined;
   window.clearTimeout(toastTimer);
   window.clearTimeout(nextTimer);

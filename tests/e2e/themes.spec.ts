@@ -77,6 +77,13 @@ test('cold slow frames keep their poster until WebGL and ignore obsolete replies
     await expect(surface(page)).toHaveAttribute('data-status', 'loading');
     await expect(surface(page).locator('iframe')).toHaveCSS('opacity', '0');
     await expect(frame(page).locator('#time')).toBeHidden();
+    await expect(select(page, 'aegean')).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => page.locator('.intro-city-marker').evaluate(marker => {
+      const band = marker.getBoundingClientRect();
+      const selected = marker.parentElement!.querySelector('[aria-pressed="true"]')!.getBoundingClientRect();
+      return Math.abs(band.left + band.width / 2 - selected.left - selected.width / 2);
+    })).toBeLessThan(1);
+    await expect(surface(page)).toHaveAttribute('data-status', 'loading');
     const color = await frame(page).locator('html').evaluate(root => getComputedStyle(root).backgroundColor);
     expect(color).toBe('rgb(17, 39, 44)');
     if (process.env.V31_SHOTS) await page.screenshot({ path: 'test-results/v31-transition-poster.png', scale: 'css' });
@@ -167,6 +174,7 @@ test.describe('phone and reduced motion', () => {
     await expect(frame(page).locator('#orbit')).toHaveAttribute('aria-pressed', 'false');
     if (process.env.V31_SHOTS) await page.screenshot({ path: 'test-results/v31-mobile.png', scale: 'css' });
     await select(page, 'shanghai').tap();
+    await expect(page.locator('.intro-city-marker')).toHaveCSS('transition-property', 'none');
     await expect(action(page)).toHaveText('开始点亮');
     await select(page, 'aegean').tap();
     await expect(action(page)).toHaveText('开始点亮');

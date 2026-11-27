@@ -1,4 +1,4 @@
-export type CityMode = 'home' | 'view' | 'show' | 'revive' | 'park';
+export type CityMode = 'home' | 'view' | 'preview' | 'show' | 'revive' | 'park';
 
 export interface CityRevival {
   progress: readonly number[];
@@ -20,7 +20,7 @@ export function connectPresentation(applyMode: (mode: CityMode, revival?: CityRe
 
   if (window.parent === window) {
     const requested = new URLSearchParams(location.search).get('exhibit');
-    apply(requested === 'home' || requested === 'show' ? requested : 'view');
+    apply(requested === 'home' || requested === 'show' || requested === 'preview' ? requested : 'view');
     return;
   }
   document.documentElement.dataset.embedded = '';

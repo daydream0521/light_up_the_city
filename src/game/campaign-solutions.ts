@@ -1,4 +1,4 @@
-import type { Direction, PieceKind } from '../src/game/levels';
+import type { Direction, PieceKind } from './levels';
 
 export interface SolutionFixture {
   levelId: number;

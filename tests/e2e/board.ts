@@ -1,7 +1,8 @@
 import { CITIES, cityOf } from '../../src/game/journey';
 import { expect, type Page } from '@playwright/test';
 import { LEVELS, type LevelConfig } from '../../src/game/levels';
-import { SOLUTIONS } from '../campaign-solutions';
+import { referenceMoves } from '../../src/game/campaignGuide';
+import { initialReflectionState } from '../../src/game/reflection';
 
 export async function clickCell(page: Page, x: number, z: number): Promise<void> {
   await expect(page.locator('canvas')).toHaveAttribute('data-camera-moving', 'false');
@@ -20,19 +21,9 @@ export async function pickTool(page: Page, tool: string): Promise<void> {
 
 export async function solveLevel(page: Page, level: LevelConfig): Promise<void> {
   await expect(page.locator('#level-name')).toHaveText(level.name);
-  const solution = SOLUTIONS[level.id];
-  async function rotate(at: readonly [number, number], from: number, to: number, directions: number) {
-    const clicks = (to - from + directions) % directions;
-    for (let i = 0; i < clicks; i += 1) await clickCell(page, ...at);
-  }
-  await rotate(level.source, level.sourceDirection, solution.sourceDirection, 4);
-  for (const [index, piece] of level.reflection.pieces.entries()) {
-    await rotate(piece.at, piece.state, solution.pieceStates[index], piece.kind === 'single' ? 4 : 2);
-  }
-  for (const piece of solution.placements) {
-    await pickTool(page, piece.kind);
-    await clickCell(page, piece.x, piece.z);
-    await rotate([piece.x, piece.z], 0, piece.state, piece.kind === 'single' ? 4 : 2);
+  for (const move of referenceMoves(level, initialReflectionState(level))) {
+    if (move.tool) await pickTool(page, move.tool);
+    await clickCell(page, ...move.at);
   }
   // The campaign advances on a timer, so fast and slow renderers may see different toast durations.
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('light-up-the-city-v3')!).completed))
